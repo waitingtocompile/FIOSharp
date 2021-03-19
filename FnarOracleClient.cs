@@ -4,28 +4,55 @@ using Newtonsoft.Json.Linq;
 using RestSharp;
 using System;
 using FIOSharp.Data;
-using FIOSharp.Data.Linked;
 
 namespace FIOSharp
 {
+
+	// this is old legacy junk. It's only here for my personal reference
+	/*
 	public class FnarOracleClient
 	{
-		private RestClient oracleClient;
+		
+		#region requests
+		private RestRequest materialsRequest => BuildRequest("rain/materials");
+		private RestRequest buildingRequest => BuildRequest("rain/buildings");
+		private RestRequest buildingCostRequest => BuildRequest("rain/buildingcosts");
+		private RestRequest buildingWorkForceRequest => BuildRequest("rain/buildingworkforces");
+		private RestRequest recipeRequest => BuildRequest("rain/buildingrecipes");
+		private RestRequest recipeInputRequest => BuildRequest("rain/recipeinputs");
+		private RestRequest recipeOutputRequest => BuildRequest("rain/recipeoutputs");
+		private RestRequest exchangesRequest => BuildRequest("global/comexexchanges");
+		#endregion
 
-		//region requests
-		private static RestRequest materialsRequest => new RestRequest("rain/materials", DataFormat.Json);
-		private static RestRequest buildingRequest => new RestRequest("rain/buildings", DataFormat.Json);
-		private static RestRequest buildingCostRequest => new RestRequest("rain/buildingcosts", DataFormat.Json);
-		private static RestRequest buildingWorkForceRequest => new RestRequest("rain/buildingworkforces", DataFormat.Json);
-		private static RestRequest recipeRequest => new RestRequest("rain/buildingrecipes", DataFormat.Json);
-		private static RestRequest recipeInputRequest => new RestRequest("rain/recipeinputs", DataFormat.Json);
-		private static RestRequest recipeOutputRequest => new RestRequest("rain/recipeoutputs", DataFormat.Json);
-		private static RestRequest exchangesRequest => new RestRequest("global/comexexchanges", DataFormat.Json);
-		//endregion
+		private readonly RestClient oracleClient;
+		private string authKey = "";
+		public string AuthoriedAs { get; private set; } = "";
+		private DateTime authKeyExpiry = DateTime.MinValue;
 
-		public FnarOracleClient(string APIBaseUrl = "https://rest.fnar.net")
+		public bool AuthKeyExpired => authKeyExpiry.CompareTo(DateTime.Now) < 0;
+		public bool AlwaysRequireAuth;
+		public string APIBaseUrl => oracleClient.BaseUrl.ToString();
+
+		public FnarOracleClient(string APIBaseUrl = "https://rest.fnar.net", bool alwaysAuth = true)
 		{
 			oracleClient = new RestClient(APIBaseUrl);
+			AlwaysRequireAuth = alwaysAuth;
+		}
+
+		private RestRequest BuildRequest(string path, AuthMode authMode = AuthMode.IfAvailible)
+		{
+			RestRequest request = new RestRequest(path, DataFormat.Json);
+			if (authMode == AuthMode.Never) return request;
+			if(!AuthKeyExpired)
+			{
+				//auth key is still valid
+				request.AddHeader("Authorization", authKey);
+			}
+			else if(authMode == AuthMode.Require || AlwaysRequireAuth)
+			{
+				throw new InvalidOperationException("Authorization required, but no valid auth key stored, make sure you've logged in and are keeping your key fresh");
+			}
+			return request;
 		}
 
 		public System.Net.HttpStatusCode LoginAs(string username, string password)
@@ -40,59 +67,86 @@ namespace FIOSharp
 			if(response.StatusCode == System.Net.HttpStatusCode.OK)
 			{
 				JObject responseObject = JObject.Parse(response.Content);
-				DateTime expiry = responseObject.Value<JToken>("Expiry").ToObject<DateTime>();
-				string authKey = responseObject.Value<JToken>("AuthToken").ToObject<string>();
-				//logged in, actually store the token etc
+				authKeyExpiry = responseObject.Value<JToken>("Expiry").ToObject<DateTime>();
+				authKey = responseObject.Value<JToken>("AuthToken").ToObject<string>();
+				AuthoriedAs = username;
 			}
 			return response.StatusCode;
 		}
 
-		public List<Material> GetMaterials()
+		public void ClearAuth()
+		{
+			authKeyExpiry = DateTime.MinValue;
+			authKey = "";
+			AuthoriedAs = "";
+		}
+
+		public bool IsAuth()
+		{
+			if (AuthKeyExpired) return false;
+			RestRequest request = BuildRequest("auth", AuthMode.Require);
+			IRestResponse response = oracleClient.Get(request);
+
+			if (response.StatusCode == System.Net.HttpStatusCode.OK) return true;
+			if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized) return false;
+
+			throw new HttpException(response.StatusCode, response.StatusDescription);
+		}
+
+		public virtual List<Material> GetMaterials()
 		{
 			IRestResponse response = oracleClient.Get(materialsRequest);
 			if (response.StatusCode == System.Net.HttpStatusCode.OK)
-			{
 				return JArray.Parse(response.Content).Select(token => token.ToObject<Material>()).ToList();
-			}
-			else
-			{
-				throw new HttpException(response.StatusCode, response.StatusDescription);
-			}
+			throw new HttpException(response.StatusCode, response.StatusDescription);
 		}
 
-		public List<ExchangeData> GetExchanges()
+		public virtual List<ExchangeData> GetExchanges()
 		{
 			IRestResponse response = oracleClient.Get(exchangesRequest);
 			if(response.StatusCode == System.Net.HttpStatusCode.OK)
-			{
-				JArray responseArray = JArray.Parse(response.Content);
-				return responseArray.Select(token => token.ToObject<ExchangeData>()).ToList();
-			}
-			else
-			{
-				throw new HttpException(response.StatusCode, response.StatusDescription);
-			}
+				return JArray.Parse(response.Content).Select(token => token.ToObject<ExchangeData>()).ToList();
+
+			throw new HttpException(response.StatusCode, response.StatusDescription);
 		}
 
-		public ExchangeEntry GetEntryForExchange(ExchangeData exchange, Material material)
+		public List<ExchangeEntry> GetAllEntriesForExchange(ExchangeData exchange, List<Material> allMaterials, bool applyUpdate = true)
+		{
+			return GetAllEntriesForExchanges(new List<ExchangeData>() { exchange }, allMaterials, applyUpdate);
+		}
+
+		public List<ExchangeEntry> GetAllEntriesForExchanges(List<ExchangeData> exchanges, List<Material> allMaterials, bool applyUpdate = true)
+		{
+			RestRequest request = BuildRequest("exchange/full");
+			IRestResponse response = oracleClient.Get(request);
+			if (response.StatusCode == System.Net.HttpStatusCode.OK)
+				return JArray.Parse(response.Content).Select(token =>
+				{
+					JObject jObject = (JObject)token;
+					var foundExchanges = exchanges.Where(exchange => exchange.Ticker.Equals(jObject.GetValue("ExchangeCode").ToObject<string>()));
+					return ExchangeEntry.FromJson(jObject, allMaterials, foundExchanges.FirstOrDefault(), applyUpdate);
+				}).Where(entry => entry.Exchange != null).ToList();
+
+			throw new HttpException(response.StatusCode, response.StatusDescription);
+		}
+
+		public ExchangeEntry GetEntryForExchange(ExchangeData exchange, Material material, bool applyUpdate = true)
 		{
 			if (material.Ticker.Equals("CMK"))
 			{
 				throw new ArgumentException("Special non marketable material type CMK");
 			}
-			RestRequest request = new RestRequest("exchange/" + exchange.GetComexMaterialCode(material.Ticker), DataFormat.Json);
+
+			RestRequest request = BuildRequest("exchange/" + exchange.GetComexMaterialCode(material.Ticker));
 			IRestResponse response = oracleClient.Get(request);
 			if(response.StatusCode == System.Net.HttpStatusCode.OK)
-			{
-				return ExchangeEntry.FromJson(JObject.Parse(response.Content), material, exchange);
-			}
-			else
-			{
-				throw new HttpException(response.StatusCode, response.StatusDescription);
-			}
+				return ExchangeEntry.FromJson(JObject.Parse(response.Content), material, exchange, applyUpdate);
+
+
+			throw new HttpException(response.StatusCode, response.StatusDescription);
 		}
 
-		public List<Building> GetBuildings(bool getConstructionCost = true, bool getPopulation = true)
+		public virtual List<Building> GetBuildings(bool getConstructionCost = true, bool getPopulation = true)
 		{
 			List<Building.Builder> builders = TryGetAndConvertArray<Building.Builder>(buildingRequest);
 
@@ -174,9 +228,9 @@ namespace FIOSharp
 			return builders.Select(builder => builder.Build()).ToList();
 		}
 
-		public List<BuildingRecipe> GetRecipes(bool includeInputs = true, bool includeOutputs = true)
+		public List<Recipe> GetRecipes(bool includeInputs = true, bool includeOutputs = true)
 		{
-			List<BuildingRecipe.Builder> builders = TryGetAndConvertArray<BuildingRecipe.Builder>(recipeRequest);
+			List<Recipe.Builder> builders = TryGetAndConvertArray<Recipe.Builder>(recipeRequest);
 
 
 			static (string Key, string Material, int Amount) parse(JToken token)
@@ -192,7 +246,7 @@ namespace FIOSharp
 			{
 				foreach((string Key, string Material, int Amount) in TryGetAndConvertArray(recipeInputRequest, parse))
 				{
-					foreach(BuildingRecipe.Builder builder in builders)
+					foreach(Recipe.Builder builder in builders)
 					{
 						if (builder.Key.Equals(Key))
 						{
@@ -206,7 +260,7 @@ namespace FIOSharp
 			{
 				foreach ((string Key, string Material, int Amount) in TryGetAndConvertArray(recipeOutputRequest, parse))
 				{
-					foreach (BuildingRecipe.Builder builder in builders)
+					foreach (Recipe.Builder builder in builders)
 					{
 						if (builder.Key.Equals(Key))
 						{
@@ -243,4 +297,5 @@ namespace FIOSharp
 			}
 		}
 	}
+	*/
 }

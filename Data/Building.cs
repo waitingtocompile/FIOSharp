@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Text;
 using System.Linq;
+using Newtonsoft.Json.Linq;
 
 namespace FIOSharp.Data
 {
@@ -13,9 +14,9 @@ namespace FIOSharp.Data
 		public readonly string Expertise;
 		
 		public readonly IReadOnlyDictionary<PopulationType, int> Populations;
-		public readonly IReadOnlyDictionary<string, int> BaseConstructionCost;
+		public readonly IReadOnlyDictionary<Material, int> BaseConstructionCost;
 
-		public Building(string ticker, string name, int area, string expertise, IReadOnlyDictionary<PopulationType, int> populations, IReadOnlyDictionary<string, int> baseConstructionCost)
+		public Building(string ticker, string name, int area, string expertise, IReadOnlyDictionary<PopulationType, int> populations, IReadOnlyDictionary<Material, int> baseConstructionCost)
 		{
 			Ticker = ticker;
 			Name = name;
@@ -25,6 +26,7 @@ namespace FIOSharp.Data
 			BaseConstructionCost = baseConstructionCost;
 		}
 
+		//because our building data is fetched from three different endpoints it gets assembled slowly and out of order, hence a builder
 		public class Builder
 		{
 			public string Ticker { get; set; }
@@ -41,7 +43,7 @@ namespace FIOSharp.Data
 			}
 
 			private Dictionary<PopulationType, int> Populations { get; } = new Dictionary<PopulationType, int>();
-			private Dictionary<string, int> BaseConstructionCost { get; } = new Dictionary<string, int>();
+			private Dictionary<Material, int> BaseConstructionCost { get; } = new Dictionary<Material, int>();
 
 			
 
@@ -77,29 +79,29 @@ namespace FIOSharp.Data
 				return this;
 			}
 
-			public Builder setConstructionMaterial(string materialTicker, int count)
+			public Builder setConstructionMaterial(Material material, int count)
 			{
 				if(count == 0)
 				{
-					BaseConstructionCost.Remove(materialTicker);
+					BaseConstructionCost.Remove(material);
 					return this;
 				}
-				if (BaseConstructionCost.ContainsKey(materialTicker))
+				if (BaseConstructionCost.ContainsKey(material))
 				{
-					BaseConstructionCost[materialTicker] = count;
+					BaseConstructionCost[material] = count;
 				}
 				else
 				{
-					BaseConstructionCost.Add(materialTicker, count);
+					BaseConstructionCost.Add(material, count);
 				}
 				return this;
 			}
 
-			public Builder setConstructionMaterials((string materialTicker, int count)[] mats)
+			public Builder setConstructionMaterials((Material material, int count)[] mats)
 			{
 				foreach(var mat in mats)
 				{
-					setConstructionMaterial(mat.materialTicker, mat.count);
+					setConstructionMaterial(mat.material, mat.count);
 				}
 				return this;
 			}

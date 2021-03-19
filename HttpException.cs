@@ -5,38 +5,38 @@ namespace FIOSharp
 {
     public class HttpException : Exception
     {
-        private readonly int httpStatusCode;
+        public int StatusCode { get; }
 
         public HttpException(int httpStatusCode)
         {
-            this.httpStatusCode = httpStatusCode;
+            this.StatusCode = httpStatusCode;
         }
 
         public HttpException(HttpStatusCode httpStatusCode)
         {
-            this.httpStatusCode = (int)httpStatusCode;
+            this.StatusCode = (int)httpStatusCode;
         }
 
         public HttpException(int httpStatusCode, string message) : base(message)
         {
-            this.httpStatusCode = httpStatusCode;
+            this.StatusCode = httpStatusCode;
         }
 
         public HttpException(HttpStatusCode httpStatusCode, string message) : base(message)
         {
-            this.httpStatusCode = (int)httpStatusCode;
+            this.StatusCode = (int)httpStatusCode;
         }
 
         public HttpException(int httpStatusCode, string message, Exception inner) : base(message, inner)
         {
-            this.httpStatusCode = httpStatusCode;
+            this.StatusCode = httpStatusCode;
         }
 
         public HttpException(HttpStatusCode httpStatusCode, string message, Exception inner) : base(message, inner)
         {
-            this.httpStatusCode = (int)httpStatusCode;
+            this.StatusCode = (int)httpStatusCode;
         }
 
-        public int StatusCode { get { return this.httpStatusCode; } }
-    }
+		
+	}
 }
