@@ -737,6 +737,19 @@ namespace FIOSharp
 			}
 		}
 
+		public async Task<List<WorkforceRequirement>> GetWorkforceRequirementsAsync(List<Material> allMaterials = null)
+		{
+			Task<List<Material>> materialsTask = (allMaterials == null) ? GetMaterialsAsync() : Task.FromResult(allMaterials);
+			try
+			{
+				return (await GetAndConvertArrayAsync("global/workforceneeds", async token => WorkforceRequirement.FromJson((JObject)token, await materialsTask))).ToList();
+			}
+			catch (JsonSchemaException ex)
+			{
+				throw new OracleResponseException("global/workforceneeds", ex);
+			}
+		}
+
 		protected async Task<IEnumerable<T>> GetAndConvertArrayAsync<T>(string path, Func<JToken, Task<T>> taskConverter = null)
 		{
 			if (taskConverter != null) taskConverter = token => Task.Run(() =>
