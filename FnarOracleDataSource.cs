@@ -535,6 +535,11 @@ namespace FIOSharp
 			return (await GetAndConvertArrayAsync<ExchangeData>("global/comexchanges")).ToList();
 		}
 
+		public async Task<List<ExchangeEntry>> GetEntriesForExchangeAsync(ExchangeData exchange, List<Material> allMaterials = null, bool applyToExchanges = true)
+		{
+			return await GetEntriesForExchangesAsync(new List<ExchangeData>() { exchange }, allMaterials, applyToExchanges);
+		}
+
 		public async Task<List<ExchangeEntry>> GetEntriesForExchangesAsync(List<ExchangeData> exchanges, List<Material> allMaterials = null, bool applyToExchanges = true)
 		{
 			//todo: do our cascading in a more async friendly manner
