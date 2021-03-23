@@ -415,7 +415,6 @@ namespace FIOSharp
 					throw new OracleResponseException("rain/buildingworkforces", ex);
 				}
 			}).ToList();
-
 		}
 
 		public List<Recipe> GetRecipes(List<Material> allMaterials = null, List<Building> allBuildings = null)
@@ -539,7 +538,7 @@ namespace FIOSharp
 		public async Task<List<ExchangeEntry>> GetEntriesForExchangesAsync(List<ExchangeData> exchanges, List<Material> allMaterials = null, bool applyToExchanges = true)
 		{
 			//todo: do our cascading in a more async friendly manner
-			Task<List<Material>> awaitingMaterials = (allMaterials == null) ? GetMaterialsAsync() : Task.Run(() => allMaterials);
+			Task<List<Material>> awaitingMaterials = (allMaterials == null) ? GetMaterialsAsync() : Task.FromResult(allMaterials);
 
 			IEnumerable<JObject> jObjects = await GetAndConvertArrayAsync("exchange/full", token => {
 				try { return (JObject)token; }
@@ -583,6 +582,137 @@ namespace FIOSharp
 			throw new HttpException(response.StatusCode, response.StatusDescription);
 		}
 
+		public async Task<List<Building>> GetBuildingsAsync(List<Material> allMaterials = null)
+		{
+			Task<List<Material>> materialsTask = (allMaterials == null) ? GetMaterialsAsync() : Task.FromResult(allMaterials);
+
+			Task<IEnumerable<Building.Builder>> buildersTask = GetAndConvertArrayAsync<Building.Builder>("rain/buildings");
+			var costsTask = GetConstructionCostsAsync(materialsTask);
+			var populationsTask = GetBuildingPopulationsAsync();
+
+			Dictionary<string, Building.Builder> builders = (await buildersTask).ToDictionary(builder => builder.Ticker, builder => builder);
+
+			//we're doing this assignment process synchronously so that we don't have multiple threads trying to interact with our non thread safe collections.
+			//yes we probably *could* make them all thread safe or all our operations atomic, I'm not convinced it's worth the effort, we're already threading our two longest processes:
+			//Rest requests and deserialization
+			foreach (var entry in await costsTask)
+			{
+				if (!builders.ContainsKey(entry.building))
+				{
+					//yes this is throwing for rain/buildings.
+					//This is intentional, we're assuming that the building list is incomplete, rather than something extra sneaking into buildingcosts
+					throw new OracleResponseException("rain/buildings", $"Missing building {entry.building} required by costs");
+				}
+				builders[entry.building].setConstructionMaterial(entry.material, entry.count);
+			}
+
+			foreach (var entry in await populationsTask)
+			{
+				if (!builders.ContainsKey(entry.building))
+				{
+					//see previous
+					throw new OracleResponseException("rain/buildings", $"Missing building {entry.building} required by populations");
+				}
+				builders[entry.building].setPopulation(entry.populationType, entry.count);
+			}
+
+			return builders.Values.Select(builder => builder.Build()).ToList();
+		}
+		public async Task<List<(string building, Material material, int count)>> GetConstructionCostsAsync(List<Material> allMaterials)
+		{
+			return await GetConstructionCostsAsync(Task.FromResult(allMaterials));
+		}
+
+		protected async Task<List<(string building, Material material, int count)>> GetConstructionCostsAsync(Task<List<Material>> allMaterialsTask)
+		{
+			IRestResponse response = await RateLimitedGetAsync("rain/buildingcosts");
+			if (response.StatusCode != HttpStatusCode.OK) throw new HttpException(response.StatusCode, response.StatusDescription);
+
+			JArray costsArray;
+			try
+			{
+				costsArray = JArray.Parse(response.Content);
+			}
+			catch (JsonReaderException ex)
+			{
+				throw new OracleResponseException("rain/buildingcosts", ex);
+			}
+
+			List<Material> allMaterials = await allMaterialsTask;
+
+			return (await Task.WhenAll(costsArray.Select(token => Task.Run(() =>
+			{
+				JObject jObject;
+				try
+				{
+					jObject = (JObject)token;
+				}
+				catch (InvalidCastException)
+				{
+					throw new OracleResponseException("rain/buildingcosts", $"expected json object, found {token.Type}");
+				}
+
+				string buildingTicker;
+				string materialTicker;
+				int count;
+				try
+				{
+					buildingTicker = jObject.GetValue("Building").ToObject<string>().ToUpper();
+					materialTicker = jObject.GetValue("Material").ToObject<string>().ToUpper();
+					count = jObject.GetValue("Amount").ToObject<int>();
+				}
+				catch (Exception ex) when (ex is NullReferenceException || ex is FormatException || ex is ArgumentException)
+				{
+					throw new OracleResponseException("rain/buildingcosts", "invalid schema for building costs recived");
+				}
+
+				Material material;
+				try
+				{
+					material = allMaterials.Where(mat => mat.Ticker.ToUpper().Equals(materialTicker)).First();
+				}
+				catch (InvalidOperationException)
+				{
+					throw new ArgumentException($"Incomplete list of materials provided, missing {materialTicker}");
+				}
+
+				return (buildingTicker, material, count);
+			})))).ToList();
+		}
+
+		public async Task<List<(string building, PopulationType populationType, int count)>> GetBuildingPopulationsAsync()
+		{
+			IRestResponse response = await RateLimitedGetAsync("rain/buildingworkforces");
+			if (response.StatusCode != HttpStatusCode.OK) throw new HttpException(response.StatusCode, response.StatusDescription);
+			JArray jArray;
+			try
+			{
+				jArray = JArray.Parse(response.Content);
+			}
+			catch (JsonReaderException ex)
+			{
+				throw new OracleResponseException("rain/buildingworkforces", ex);
+			}
+
+			return (await Task.WhenAll(jArray.Select(token => Task.Run(() =>
+			{
+				try
+				{
+					JObject jObject = (JObject)token;
+					return (
+						jObject.GetValue("Building").ToObject<string>(),
+						PopulationType.Parse(jObject.GetValue("Level").ToObject<string>()),
+						jObject.GetValue("Capacity").ToObject<int>());
+				}
+				catch (Exception ex) when (ex is InvalidCastException || ex is JsonSerializationException || ex is NullReferenceException || ex is ArgumentException || ex is FormatException)
+				{
+					throw new OracleResponseException("rain/buildingworkforces", ex);
+				}
+			})))).ToList();
+
+
+
+		}
 
 		protected async Task<IEnumerable<T>> GetAndConvertArrayAsync<T>(string path, Func<JToken, Task<T>> taskConverter = null)
 		{
