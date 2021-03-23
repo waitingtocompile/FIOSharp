@@ -714,9 +714,27 @@ namespace FIOSharp
 					throw new OracleResponseException("rain/buildingworkforces", ex);
 				}
 			})))).ToList();
+		}
 
+		public async Task<List<Recipe>> GetRecipesAsync(List<Material> allMaterials = null, List<Building> allBuildings = null)
+		{
+			Task<List<Material>> materialsTask = (allMaterials == null) ? GetMaterialsAsync() : Task.FromResult(allMaterials);
+			Task<List<Building>> buildingsTask = (allBuildings == null) ? GetBuildingsAsync(await materialsTask) : Task.FromResult(allBuildings);
 
+			try
+			{
 
+				Task<Recipe[]> task = Task.WhenAll(await GetAndConvertArrayAsync(BuildRequest("recipe/allrecipes", AuthMode.Require), async token => Recipe.FromJson((JObject)token, await materialsTask, await buildingsTask)));
+				return (await task).ToList();
+			}
+			catch (InvalidCastException)
+			{
+				throw new OracleResponseException("recipe/allrecipes", "did not recive a list of objects");
+			}
+			catch (JsonSchemaException ex)
+			{
+				throw new OracleResponseException("recipe/allrecipes", ex);
+			}
 		}
 
 		protected async Task<IEnumerable<T>> GetAndConvertArrayAsync<T>(string path, Func<JToken, Task<T>> taskConverter = null)
