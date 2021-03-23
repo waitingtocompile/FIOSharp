@@ -8,29 +8,64 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Net;
 using System.Text;
+using System.Threading.Tasks;
 
 namespace FIOSharp
 {
 	public class FnarOracleDataSource : IVariableDataSource
 	{
 		/// <summary>
-		/// The underlying RestSharp client that we're using
+		/// The underlying RestSharp client that we're using. You shouldn't be making calls to this directly for the most part, but instead using the rate-limited helper functions
 		/// </summary>
 		protected readonly RestClient restClient;
-		private string authKey = "";
+		
 		/// <summary>
 		/// The username that we are currently logged in as, null if we aren't logged in, or an empty string if the username is unknown
 		/// </summary>
 		public string AuthoriedAs { get; protected set; } = null;
-		private DateTime authKeyExpiry = DateTime.MinValue;
+		
 		public bool AuthKeyExpired => authKeyExpiry.CompareTo(DateTime.Now) < 0;
 		public bool AlwaysRequireAuth;
 		public string APIBaseUrl => restClient.BaseUrl.ToString();
 
-		public FnarOracleDataSource(string APIBaseUrl = "https://rest.fnar.net", bool alwaysAuth = true)
+		/// <summary>
+		/// The amount of time in ms to wait for the rate limiter when making a request.
+		/// 0 inidcates to never wait for the rate limited, -1 indicates to wait forever
+		/// </summary>
+		public int RateLimitTimeout { get => _rateLimitTimeout; set
+			{
+				if (value < -1) throw new ArgumentOutOfRangeException("rate limt timeout must be a positive integer or -1");
+				_rateLimitTimeout = value;
+			}
+		}
+		private int _rateLimitTimeout = -1;
+
+		/// <summary>
+		/// The amount of time to wait for a response from the server in ms
+		/// </summary>
+		public int RestTimeout { get => restClient.Timeout; set => restClient.Timeout = value; }
+
+
+		private string authKey = "";
+		private DateTime authKeyExpiry = DateTime.MinValue;
+		/// <summary>
+		/// This is our rate limiter, all API calls should in some capacity go through this. There's a bunch of helper methods to make this fairly painless when you're adding new enpoints
+		/// </summary>
+		protected readonly RateLimiter rateLimiter;
+
+		/// <param name="APIBaseUrl">The base URL of the API.</param>
+		/// <param name="alwaysAuth">If true, will only send API requests if it is logged in, even if the endpoint doesn't strictly require authorisation</param>
+		/// <param name="rateLimit">the maximum number of API calls to send per second. Setting below the default value is strongly discouraged since Saganaki doesn't want the server to get overwhlemed</param>
+		public FnarOracleDataSource(string APIBaseUrl = "https://rest.fnar.net", bool alwaysAuth = true, int rateLimit = 3)
 		{
 			restClient = new RestClient(APIBaseUrl);
 			AlwaysRequireAuth = alwaysAuth;
+			rateLimiter = new RateLimiter(rateLimit, 1000);
+		}
+
+		~FnarOracleDataSource()
+		{
+			rateLimiter.Dispose();
 		}
 
 		/// <summary>
@@ -53,36 +88,104 @@ namespace FIOSharp
 			return request;
 		}
 
+		#region rate limited GET and POST helpers
 		/// <summary>
-		/// Log in to the FIO API with a given username and password
+		/// Perform a rate limited GET call on the api
 		/// </summary>
-		/// <returns>The resulting status code. 200 indicates a succesful login, 401 indicates invalid credentials, any other code indicates a failure of some kind</returns>
-		public System.Net.HttpStatusCode LoginAs(string username, string password)
+		/// <param name="path">the path of the endpoint to use</param>
+		/// <param name="authMode">the authentication mode to use</param>
+		/// <returns>The RestResponse from the request</returns>
+		protected IRestResponse RateLimitedGet(string path, AuthMode authMode = AuthMode.IfAvailible)
 		{
-			RestRequest request = BuildRequest("auth/login", AuthMode.Never);
-			JObject jObject = new JObject();
-			jObject.Add("UserName", username);
-			jObject.Add("Password", password);
-			request.AddJsonBody(jObject.ToString());
-
-			IRestResponse response = restClient.Post(request);
-			if (response.StatusCode == System.Net.HttpStatusCode.OK)
-			{
-				try
-				{
-					JObject responseObject = JObject.Parse(response.Content);
-					authKeyExpiry = responseObject.GetValue("Expiry").ToObject<DateTime>();
-					authKey = responseObject.GetValue("AuthToken").ToObject<string>();
-					AuthoriedAs = username;
-				}
-				catch (Exception ex) when (ex is NullReferenceException || ex is JsonReaderException || ex is FormatException || ex is ArgumentException)
-				{
-					ClearAuth();
-					throw new OracleResponseException("auth/login", "Invalid json schema", ex);
-				}
-			}
-			return response.StatusCode;
+			return RateLimitedGet(BuildRequest(path, authMode));
 		}
+
+		/// <summary>
+		/// Perform a rate limited GET call on the api
+		/// </summary>
+		/// <param name="restRequest">the rest request to be executed</param>
+		/// <returns>The RestResponse from the request</returns>
+		protected IRestResponse RateLimitedGet(RestRequest restRequest)
+		{
+			return rateLimiter.Run(() => restClient.Get(restRequest), RateLimitTimeout);
+		}
+
+		/// <summary>
+		/// Perform a rate limited asynchronous GET call on the api
+		/// </summary>
+		/// <param name="path">the path of the endpoint to use</param>
+		/// <param name="authMode">the authentication mode to use</param>
+		/// <returns>The RestResponse from the request</returns>
+		protected async Task<IRestResponse> RateLimitedGetAsync(string path, AuthMode authMode = AuthMode.IfAvailible)
+		{
+			return await RateLimitedGetAsync(BuildRequest(path, authMode));
+		}
+
+		/// <summary>
+		/// Perform a rate limited asynchronous GET call on the api
+		/// </summary>
+		/// <param name="restRequest">the rest request to be executed</param>
+		/// <returns>The RestResponse from the request</returns>
+		protected async Task<IRestResponse> RateLimitedGetAsync(RestRequest restRequest)
+		{
+			return await rateLimiter.RunAsync(async () => await restClient.ExecuteGetAsync(restRequest), RateLimitTimeout);
+		}
+
+		/// <summary>
+		/// Perform a rate limited POST call on the api
+		/// </summary>
+		/// <param name="path">the endpoint to use</param>
+		/// <param name="requestBody">the request body, or leave blank to POST with no body</param>
+		/// <param name="authMode">the authentication mode to use</param>
+		/// <returns>The RestResponse from the request<</returns>
+		protected IRestResponse RateLimitedPost(string path, string requestJsonBody = "", AuthMode authMode = AuthMode.IfAvailible)
+		{
+			RestRequest request = BuildRequest(path, authMode);
+			if(requestJsonBody.Length > 0)
+			{
+				request.AddJsonBody(requestJsonBody);
+			}
+			return RateLimitedPost(request);
+		}
+
+		/// <summary>
+		/// Perform a rate limited asynchronous POST call on the api
+		/// </summary>
+		/// <param name="restRequest">the rest request to be executed</param>
+		/// <returns>The RestResponse from the request<</returns>
+		protected IRestResponse RateLimitedPost(RestRequest restRequest)
+		{
+			return rateLimiter.Run(() => restClient.Post(restRequest), RateLimitTimeout);
+		}
+
+		/// <summary>
+		/// Perform a rate limited asynchronous POST call on the api
+		/// </summary>
+		/// <param name="path">the endpoint to use</param>
+		/// <param name="requestBody">the request body, or leave blank to POST with no body</param>
+		/// <param name="authMode">the authentication mode to use</param>
+		/// <returns>The RestResponse from the request<</returns>
+		protected async Task<IRestResponse> RateLimitedPostAsync(string path, string requestJsonBody = "", AuthMode authMode = AuthMode.IfAvailible)
+		{
+			RestRequest request = BuildRequest(path, authMode);
+			if (requestJsonBody.Length > 0)
+			{
+				request.AddJsonBody(requestJsonBody);
+			}
+			return await RateLimitedPostAsync(request);
+		}
+
+		/// <summary>
+		/// Perform a rate limited POST call on the api
+		/// </summary>
+		/// <param name="restRequest">the rest request to be executed</param>
+		/// <returns>The RestResponse from the request<</returns>
+		protected async Task<IRestResponse> RateLimitedPostAsync(RestRequest restRequest)
+		{
+			return await rateLimiter.RunAsync(async () => await restClient.ExecutePostAsync(restRequest), RateLimitTimeout);
+		}
+		#endregion
+
 
 		/// <summary>
 		/// Clear the current stored authorization key.
@@ -111,7 +214,39 @@ namespace FIOSharp
 			throw new HttpException(response.StatusCode, response.StatusDescription);
 		}
 
-		public virtual List<Material> GetMaterials()
+		#region sync endpoints
+
+		/// <summary>
+		/// Log in to the FIO API with a given username and password
+		/// </summary>
+		/// <returns>The resulting status code. 200 indicates a succesful login, 401 indicates invalid credentials, any other code indicates a failure of some kind</returns>
+		public HttpStatusCode LoginAs(string username, string password)
+		{
+			JObject jObject = new JObject();
+			jObject.Add("UserName", username);
+			jObject.Add("Password", password);
+
+			IRestResponse response = RateLimitedPost("auth/login", jObject.ToString(), AuthMode.Never);
+			if (response.StatusCode == HttpStatusCode.OK)
+			{
+				try
+				{
+					JObject responseObject = JObject.Parse(response.Content);
+					authKeyExpiry = responseObject.GetValue("Expiry").ToObject<DateTime>();
+					authKey = responseObject.GetValue("AuthToken").ToObject<string>();
+					AuthoriedAs = username;
+				}
+				catch (Exception ex) when (ex is NullReferenceException || ex is JsonReaderException || ex is FormatException || ex is ArgumentException)
+				{
+					ClearAuth();
+					throw new OracleResponseException("auth/login", "Invalid json schema", ex);
+				}
+			}
+			return response.StatusCode;
+		}
+
+
+		public List<Material> GetMaterials()
 		{
 			return GetAndConvertArray<Material>("rain/materials");
 		}
@@ -125,7 +260,7 @@ namespace FIOSharp
 		{
 			return GetEntriesForExchanges(new List<ExchangeData>() { exchange }, allMaterials, applyToExchange);
 		}
-		
+
 		public List<ExchangeEntry> GetEntriesForExchanges(List<ExchangeData> exchanges, List<Material> allMaterials = null, bool applyToExchanges = true)
 		{
 			if (allMaterials == null) allMaterials = GetMaterials();
@@ -151,7 +286,7 @@ namespace FIOSharp
 		public ExchangeEntry GetEntryForExchange(ExchangeData exchange, Material material, bool applyToExchange = true)
 		{
 			if (material.Ticker.Equals("CMK")) throw new ArgumentException("Special non marketable material type CMK");
-
+			
 			RestRequest request = BuildRequest($"exchange/{exchange.GetComexMaterialCode(material.Ticker)}");
 			IRestResponse response = restClient.Get(request);
 			if(response.StatusCode == HttpStatusCode.OK)
@@ -317,26 +452,28 @@ namespace FIOSharp
 			}
 		}
 
-		protected List<T> GetAndConvertArray<T>(string path)
+		protected List<T> GetAndConvertArray<T>(string path, int? rateLimitTimeout)
 		{
-			return GetAndConvertArray(path, token =>
-			{
-				try { return token.ToObject<T>(); }
-				catch (Exception ex) when (ex is JsonSerializationException || ex is FormatException || ex is ArgumentException)
-				{
-					throw new OracleResponseException(path, ex);
-				}
-			}
-			);
-		}
-		protected List<T> GetAndConvertArray<T>(string path, Func<JToken, T> converter)
-		{
-			return GetAndConvertArray<T>(BuildRequest(path), converter);
+			return GetAndConvertArray<T>(path, null, rateLimitTimeout);
 		}
 
-		protected List<T> GetAndConvertArray<T>(RestRequest request, Func<JToken, T> converter)
+		protected List<T> GetAndConvertArray<T>(string path, Func<JToken, T> converter = null, int? rateLimitTimeout = null)
 		{
-			IRestResponse response = restClient.Get(request);
+			if (converter == null) converter = token =>
+			 {
+				 try { return token.ToObject<T>(); }
+				 catch (Exception ex) when (ex is JsonSerializationException || ex is FormatException || ex is ArgumentException)
+				 {
+					 throw new OracleResponseException(path, ex);
+				 }
+			 };
+
+			return GetAndConvertArray<T>(BuildRequest(path), converter, rateLimitTimeout);
+		}
+
+		protected List<T> GetAndConvertArray<T>(RestRequest request, Func<JToken, T> converter, int? rateLimitTimeout = null)
+		{
+			IRestResponse response = RateLimitedGet(request, rateLimitTimeout);
 			if(response.StatusCode != HttpStatusCode.OK) throw new HttpException(response.StatusCode, response.StatusDescription);
 			try
 			{
@@ -347,5 +484,105 @@ namespace FIOSharp
 				throw new OracleResponseException(request.Resource, "Could not parse recived json", ex);
 			}
 		}
+		#endregion
+
+		#region Async endpoints
+
+		public async Task<List<Material>> GetMaterialsAsync<T>()
+		{
+			return await GetAndConvertArrayAsync<Material>("rain/materials");
+		}
+
+		public async Task<List<ExchangeData>> GetExchangesAsync()
+		{
+			return await GetAndConvertArrayAsync<ExchangeData>("global/comexchanges");
+		}
+
+		public async Task<List<ExchangeEntry>> GetEntriesForExchangeAsync(ExchangeData exchange, List<Material> allMaterials = null, bool applyToExchange = true)
+		{
+			return await GetEntriesForExchangesAsync(new List<ExchangeData>() { exchange }, allMaterials, applyToExchange);
+		}
+
+		public async Task<List<ExchangeEntry>> GetEntriesForExchangesAsync(List<ExchangeData> exchanges, List<Material> allMaterials = null, bool applyToExchanges = true)
+		{
+			if (allMaterials == null) allMaterials = await GetMaterialsAsync();
+
+			return GetAndConvertArray("exchange/full", token => {
+				try
+				{
+					JObject jObject = (JObject)token;
+					IEnumerable<ExchangeData> foundExchanges = exchanges.Where(exchange => exchange.Ticker.Equals(jObject.GetValue("ExchangeCode").ToObject<string>()));
+					return ExchangeEntry.FromJson(jObject, allMaterials, foundExchanges.FirstOrDefault(), applyToExchanges);
+				}
+				catch (InvalidCastException)
+				{
+					throw new OracleResponseException("exchange/full", $"Invalid schema, expected json object and got {token.Type}");
+				}
+				catch (Exception ex) when (ex is JsonSerializationException || ex is NullReferenceException || ex is JsonSchemaException || ex is ArgumentException)
+				{
+					throw new OracleResponseException("exchange/full", ex);
+				}
+			}).Where(data => data.Exchange != null).ToList();
+		}
+
+		public ExchangeEntry GetEntryForExchange(ExchangeData exchange, Material material, bool applyToExchange = true)
+		{
+			if (material.Ticker.Equals("CMK")) throw new ArgumentException("Special non marketable material type CMK");
+
+			RestRequest request = BuildRequest($"exchange/{exchange.GetComexMaterialCode(material.Ticker)}");
+			IRestResponse response = restClient.Get(request);
+			if (response.StatusCode == HttpStatusCode.OK)
+			{
+				try
+				{
+					return ExchangeEntry.FromJson(JObject.Parse(response.Content), material, exchange, applyToExchange);
+
+				}
+				catch (JsonSchemaException ex)
+				{
+					throw new OracleResponseException(request.Resource, ex);
+				}
+			}
+			throw new HttpException(response.StatusCode, response.StatusDescription);
+		}
+
+		protected async Task<List<T>> GetAndConvertArrayAsync<T>(string path, Func<JToken, Task<T>> taskConverter)
+		{
+			List<Task<T>> t = await GetAndConvertArrayAsync<Task<T>>(path, taskConverter);
+			return (await Task.WhenAll(t.ToArray())).ToList();
+		}
+
+		protected async Task<List<T>> GetAndConvertArrayAsync<T>(string path, Func<JToken, T> converter = null)
+		{
+			if(converter != null)
+			{
+				return await GetAndConvertArrayAsync(BuildRequest(path), converter);
+			}
+
+			return await GetAndConvertArrayAsync<T>(path, token => Task.Run(() =>
+			{
+				try { return token.ToObject<T>(); }
+				catch (Exception ex) when (ex is JsonSerializationException || ex is FormatException || ex is ArgumentException)
+				{
+					throw new OracleResponseException(path, ex);
+				}
+			}));
+		}
+
+		protected async Task<List<T>> GetAndConvertArrayAsync<T>(RestRequest request, Func<JToken, T> converter)
+		{
+			IRestResponse response = await restClient.ExecuteGetAsync(request);
+			if (response.StatusCode != HttpStatusCode.OK) throw new HttpException(response.StatusCode, response.StatusDescription);
+			try
+			{
+				return JArray.Parse(response.Content).Select(converter).ToList();
+			}
+			catch (JsonReaderException ex)
+			{
+				throw new OracleResponseException(request.Resource, "Could not parse recived json", ex);
+			}
+		}
+
+		#endregion
 	}
 }
