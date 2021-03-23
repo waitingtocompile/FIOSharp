@@ -197,24 +197,22 @@ namespace FIOSharp
 			AuthoriedAs = null;
 		}
 
+		#region sync endpoints
+
 		/// <summary>
 		/// Check if we are authoried. This will cause API calls to check that our key is valid, so don't over-use this.
 		/// Rely on AuthKeyExpired to check that we have a key and it's not stale when you care about execution speed, since this will block threads while it waits for a response.
 		/// </summary>
-		/// <returns></returns>
 		public bool IsAuth()
 		{
 			if (AuthKeyExpired) return false;
-			RestRequest request = BuildRequest("auth", AuthMode.Require);
-			IRestResponse response = restClient.Get(request);
+			IRestResponse response = RateLimitedGet("auth", AuthMode.Require);
 
 			if (response.StatusCode == HttpStatusCode.OK) return true;
 			if (response.StatusCode == HttpStatusCode.Unauthorized) return false;
 
 			throw new HttpException(response.StatusCode, response.StatusDescription);
 		}
-
-		#region sync endpoints
 
 		/// <summary>
 		/// Log in to the FIO API with a given username and password
@@ -287,8 +285,7 @@ namespace FIOSharp
 		{
 			if (material.Ticker.Equals("CMK")) throw new ArgumentException("Special non marketable material type CMK");
 			
-			RestRequest request = BuildRequest($"exchange/{exchange.GetComexMaterialCode(material.Ticker)}");
-			IRestResponse response = restClient.Get(request);
+			IRestResponse response = RateLimitedGet($"exchange/{exchange.GetComexMaterialCode(material.Ticker)}");
 			if(response.StatusCode == HttpStatusCode.OK)
 			{
 				try
@@ -298,7 +295,7 @@ namespace FIOSharp
 				}
 				catch(JsonSchemaException ex)
 				{
-					throw new OracleResponseException(request.Resource, ex);
+					throw new OracleResponseException(response.Request.Resource, ex);
 				}
 			}
 			throw new HttpException(response.StatusCode, response.StatusDescription);
@@ -334,9 +331,9 @@ namespace FIOSharp
 			return builders.Values.Select(builder => builder.Build()).ToList();
 		}
 
-		public List<(string building, Material material, int count)> GetConstructionCosts(List<Material> allMaterials = null)
+		public List<(string building, Material material, int count)> GetConstructionCosts(List<Material> allMaterials)
 		{
-			IRestResponse response = restClient.Get(BuildRequest("rain/buildingcosts"));
+			IRestResponse response = RateLimitedGet("rain/buildingcosts");
 			if (response.StatusCode != HttpStatusCode.OK) throw new HttpException(response.StatusCode, response.StatusDescription);
 
 			JArray costsArray;
@@ -391,7 +388,7 @@ namespace FIOSharp
 
 		public List<(string building, PopulationType populationType, int count)> GetBuildingPopulations()
 		{
-			IRestResponse response = restClient.Get(BuildRequest("rain/buildingworkforces"));
+			IRestResponse response = RateLimitedGet("rain/buildingworkforces");
 			if (response.StatusCode != HttpStatusCode.OK) throw new HttpException(response.StatusCode, response.StatusDescription);
 			JArray jArray;
 			try
@@ -452,28 +449,25 @@ namespace FIOSharp
 			}
 		}
 
-		protected List<T> GetAndConvertArray<T>(string path, int? rateLimitTimeout)
+		protected List<T> GetAndConvertArray<T>(string path, Func<JToken, T> converter = null)
 		{
-			return GetAndConvertArray<T>(path, null, rateLimitTimeout);
+			
+
+			return GetAndConvertArray<T>(BuildRequest(path), converter);
 		}
 
-		protected List<T> GetAndConvertArray<T>(string path, Func<JToken, T> converter = null, int? rateLimitTimeout = null)
+		protected List<T> GetAndConvertArray<T>(RestRequest request, Func<JToken, T> converter = null)
 		{
 			if (converter == null) converter = token =>
-			 {
-				 try { return token.ToObject<T>(); }
-				 catch (Exception ex) when (ex is JsonSerializationException || ex is FormatException || ex is ArgumentException)
-				 {
-					 throw new OracleResponseException(path, ex);
-				 }
-			 };
+			{
+				try { return token.ToObject<T>(); }
+				catch (Exception ex) when (ex is JsonSerializationException || ex is FormatException || ex is ArgumentException)
+				{
+					throw new OracleResponseException(request.Resource, ex);
+				}
+			};
 
-			return GetAndConvertArray<T>(BuildRequest(path), converter, rateLimitTimeout);
-		}
-
-		protected List<T> GetAndConvertArray<T>(RestRequest request, Func<JToken, T> converter, int? rateLimitTimeout = null)
-		{
-			IRestResponse response = RateLimitedGet(request, rateLimitTimeout);
+			IRestResponse response = RateLimitedGet(request);
 			if(response.StatusCode != HttpStatusCode.OK) throw new HttpException(response.StatusCode, response.StatusDescription);
 			try
 			{
@@ -488,7 +482,51 @@ namespace FIOSharp
 
 		#region Async endpoints
 
-		public async Task<List<Material>> GetMaterialsAsync<T>()
+		/// <summary>
+		/// Check if we are authoried. This will cause API calls to check that our key is valid, so don't over-use this.
+		/// Rely on AuthKeyExpired to check that we have a key and it's not stale when you care about execution speed.
+		/// </summary>
+		public async Task<bool> IsAuthAsync()
+		{
+			if (AuthKeyExpired) return false;
+			IRestResponse response = await RateLimitedGetAsync("auth", AuthMode.Require);
+
+			if (response.StatusCode == HttpStatusCode.OK) return true;
+			if (response.StatusCode == HttpStatusCode.Unauthorized) return false;
+
+			throw new HttpException(response.StatusCode, response.StatusDescription);
+		}
+
+		/// <summary>
+		/// Log in to the FIO API with a given username and password. On a success the resulting auth key will be stored for later use.
+		/// </summary>
+		/// <returns>The resulting status code. 200 indicates a succesful login, 401 indicates invalid credentials, any other code indicates a failure of some kind</returns>
+		public async Task<HttpStatusCode> LoginAsAsync(string username, string password)
+		{
+			JObject jObject = new JObject();
+			jObject.Add("UserName", username);
+			jObject.Add("Password", password);
+
+			IRestResponse response = await RateLimitedPostAsync("auth/login", jObject.ToString(), AuthMode.Never);
+			if (response.StatusCode == HttpStatusCode.OK)
+			{
+				try
+				{
+					JObject responseObject = JObject.Parse(response.Content);
+					authKeyExpiry = responseObject.GetValue("Expiry").ToObject<DateTime>();
+					authKey = responseObject.GetValue("AuthToken").ToObject<string>();
+					AuthoriedAs = username;
+				}
+				catch (Exception ex) when (ex is NullReferenceException || ex is JsonReaderException || ex is FormatException || ex is ArgumentException)
+				{
+					ClearAuth();
+					throw new OracleResponseException("auth/login", "Invalid json schema", ex);
+				}
+			}
+			return response.StatusCode;
+		}
+
+		public async Task<List<Material>> GetMaterialsAsync()
 		{
 			return await GetAndConvertArrayAsync<Material>("rain/materials");
 		}
@@ -498,15 +536,12 @@ namespace FIOSharp
 			return await GetAndConvertArrayAsync<ExchangeData>("global/comexchanges");
 		}
 
-		public async Task<List<ExchangeEntry>> GetEntriesForExchangeAsync(ExchangeData exchange, List<Material> allMaterials = null, bool applyToExchange = true)
-		{
-			return await GetEntriesForExchangesAsync(new List<ExchangeData>() { exchange }, allMaterials, applyToExchange);
-		}
-
 		public async Task<List<ExchangeEntry>> GetEntriesForExchangesAsync(List<ExchangeData> exchanges, List<Material> allMaterials = null, bool applyToExchanges = true)
 		{
+			//todo: do our cascading in a more async friendly manner
 			if (allMaterials == null) allMaterials = await GetMaterialsAsync();
 
+			//todo: actually make async
 			return GetAndConvertArray("exchange/full", token => {
 				try
 				{
@@ -525,26 +560,6 @@ namespace FIOSharp
 			}).Where(data => data.Exchange != null).ToList();
 		}
 
-		public ExchangeEntry GetEntryForExchange(ExchangeData exchange, Material material, bool applyToExchange = true)
-		{
-			if (material.Ticker.Equals("CMK")) throw new ArgumentException("Special non marketable material type CMK");
-
-			RestRequest request = BuildRequest($"exchange/{exchange.GetComexMaterialCode(material.Ticker)}");
-			IRestResponse response = restClient.Get(request);
-			if (response.StatusCode == HttpStatusCode.OK)
-			{
-				try
-				{
-					return ExchangeEntry.FromJson(JObject.Parse(response.Content), material, exchange, applyToExchange);
-
-				}
-				catch (JsonSchemaException ex)
-				{
-					throw new OracleResponseException(request.Resource, ex);
-				}
-			}
-			throw new HttpException(response.StatusCode, response.StatusDescription);
-		}
 
 		protected async Task<List<T>> GetAndConvertArrayAsync<T>(string path, Func<JToken, Task<T>> taskConverter)
 		{
@@ -571,7 +586,7 @@ namespace FIOSharp
 
 		protected async Task<List<T>> GetAndConvertArrayAsync<T>(RestRequest request, Func<JToken, T> converter)
 		{
-			IRestResponse response = await restClient.ExecuteGetAsync(request);
+			IRestResponse response = await RateLimitedGetAsync(request);
 			if (response.StatusCode != HttpStatusCode.OK) throw new HttpException(response.StatusCode, response.StatusDescription);
 			try
 			{
