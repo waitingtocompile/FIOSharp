@@ -528,12 +528,12 @@ namespace FIOSharp
 
 		public async Task<List<Material>> GetMaterialsAsync()
 		{
-			return await GetAndConvertArrayAsync<Material>("rain/materials");
+			return (await GetAndConvertArrayAsync<Material>("rain/materials")).ToList();
 		}
 
 		public async Task<List<ExchangeData>> GetExchangesAsync()
 		{
-			return await GetAndConvertArrayAsync<ExchangeData>("global/comexchanges");
+			return (await GetAndConvertArrayAsync<ExchangeData>("global/comexchanges")).ToList();
 		}
 
 		public async Task<List<ExchangeEntry>> GetEntriesForExchangesAsync(List<ExchangeData> exchanges, List<Material> allMaterials = null, bool applyToExchanges = true)
@@ -541,8 +541,7 @@ namespace FIOSharp
 			//todo: do our cascading in a more async friendly manner
 			if (allMaterials == null) allMaterials = await GetMaterialsAsync();
 
-			//todo: actually make async
-			return GetAndConvertArray("exchange/full", token => {
+			IEnumerable<ExchangeEntry> entries = await GetAndConvertArrayAsync("exchange/full", token => Task.Run(() => {
 				try
 				{
 					JObject jObject = (JObject)token;
@@ -557,40 +556,39 @@ namespace FIOSharp
 				{
 					throw new OracleResponseException("exchange/full", ex);
 				}
-			}).Where(data => data.Exchange != null).ToList();
+			}));
+			return entries.Where(data => data.Exchange != null).ToList();
 		}
 
 
-		protected async Task<List<T>> GetAndConvertArrayAsync<T>(string path, Func<JToken, Task<T>> taskConverter)
+		protected async Task<IEnumerable<T>> GetAndConvertArrayAsync<T>(string path, Func<JToken, Task<T>> taskConverter = null)
 		{
-			List<Task<T>> t = await GetAndConvertArrayAsync<Task<T>>(path, taskConverter);
-			return (await Task.WhenAll(t.ToArray())).ToList();
-		}
-
-		protected async Task<List<T>> GetAndConvertArrayAsync<T>(string path, Func<JToken, T> converter = null)
-		{
-			if(converter != null)
-			{
-				return await GetAndConvertArrayAsync(BuildRequest(path), converter);
-			}
-
-			return await GetAndConvertArrayAsync<T>(path, token => Task.Run(() =>
+			if (taskConverter != null) taskConverter = token => Task.Run(() =>
 			{
 				try { return token.ToObject<T>(); }
 				catch (Exception ex) when (ex is JsonSerializationException || ex is FormatException || ex is ArgumentException)
 				{
 					throw new OracleResponseException(path, ex);
 				}
-			}));
+			});
+			IEnumerable<Task<T>> tasks = await GetAndConvertArrayAsync<Task<T>>(path, taskConverter);
+			return await Task.WhenAll(tasks.ToArray());
 		}
 
-		protected async Task<List<T>> GetAndConvertArrayAsync<T>(RestRequest request, Func<JToken, T> converter)
+		protected async Task<IEnumerable<T>> GetAndConvertArrayAsync<T>(string path, Func<JToken, T> converter)
 		{
+			return await GetAndConvertArrayAsync<T>(BuildRequest(path), converter);
+		}
+
+		protected async Task<IEnumerable<T>> GetAndConvertArrayAsync<T>(RestRequest request, Func<JToken, T> converter)
+		{
+			
+
 			IRestResponse response = await RateLimitedGetAsync(request);
 			if (response.StatusCode != HttpStatusCode.OK) throw new HttpException(response.StatusCode, response.StatusDescription);
 			try
 			{
-				return JArray.Parse(response.Content).Select(converter).ToList();
+				return JArray.Parse(response.Content).Select(converter);
 			}
 			catch (JsonReaderException ex)
 			{
