@@ -551,12 +551,12 @@ namespace FIOSharp
 			});
 			allMaterials = await awaitingMaterials;
 
-			IEnumerable<ExchangeEntry> entries = await Task.WhenAll(jObjects.Select(jObject => Task.Run(() =>
+			IEnumerable<ExchangeEntry> entries = await Task.WhenAll(jObjects.Select(async jObject => 
 			{
 				try
 				{
 					IEnumerable<ExchangeData> foundExchanges = exchanges.Where(exchange => exchange.Ticker.Equals(jObject.GetValue("ExchangeCode").ToObject<string>()));
-					return ExchangeEntry.FromJson(jObject, allMaterials, foundExchanges.FirstOrDefault(), applyToExchanges);
+					return ExchangeEntry.FromJson(jObject, await awaitingMaterials, foundExchanges.FirstOrDefault(), applyToExchanges);
 				}
 				catch (Exception ex) when (ex is JsonSerializationException || ex is NullReferenceException || ex is JsonSchemaException || ex is ArgumentException)
 				{
