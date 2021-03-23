@@ -539,25 +539,48 @@ namespace FIOSharp
 		public async Task<List<ExchangeEntry>> GetEntriesForExchangesAsync(List<ExchangeData> exchanges, List<Material> allMaterials = null, bool applyToExchanges = true)
 		{
 			//todo: do our cascading in a more async friendly manner
-			if (allMaterials == null) allMaterials = await GetMaterialsAsync();
+			Task<List<Material>> awaitingMaterials = (allMaterials == null) ? GetMaterialsAsync() : Task.Run(() => allMaterials);
 
-			IEnumerable<ExchangeEntry> entries = await GetAndConvertArrayAsync("exchange/full", token => Task.Run(() => {
+			IEnumerable<JObject> jObjects = await GetAndConvertArrayAsync("exchange/full", token => {
+				try { return (JObject)token; }
+				catch (InvalidCastException) { throw new OracleResponseException("exchange/full", "Invalid schema, was expecting a json objects"); }
+			});
+			allMaterials = await awaitingMaterials;
+
+			IEnumerable<ExchangeEntry> entries = await Task.WhenAll(jObjects.Select(jObject => Task.Run(() =>
+			{
 				try
 				{
-					JObject jObject = (JObject)token;
 					IEnumerable<ExchangeData> foundExchanges = exchanges.Where(exchange => exchange.Ticker.Equals(jObject.GetValue("ExchangeCode").ToObject<string>()));
 					return ExchangeEntry.FromJson(jObject, allMaterials, foundExchanges.FirstOrDefault(), applyToExchanges);
-				}
-				catch (InvalidCastException)
-				{
-					throw new OracleResponseException("exchange/full", $"Invalid schema, expected json object and got {token.Type}");
 				}
 				catch (Exception ex) when (ex is JsonSerializationException || ex is NullReferenceException || ex is JsonSchemaException || ex is ArgumentException)
 				{
 					throw new OracleResponseException("exchange/full", ex);
 				}
-			}));
+			})));
+
 			return entries.Where(data => data.Exchange != null).ToList();
+		}
+
+		public async Task<ExchangeEntry> GetEntryForExchangeAsync(ExchangeData exchange, Material material, bool applyToExchange = true)
+		{
+			if (material.Ticker.Equals("CMK")) throw new ArgumentException("Special non marketable material type CMK");
+
+			IRestResponse response = await RateLimitedGetAsync($"exchange/{exchange.GetComexMaterialCode(material.Ticker)}");
+			if (response.StatusCode == HttpStatusCode.OK)
+			{
+				try
+				{
+					return ExchangeEntry.FromJson(JObject.Parse(response.Content), material, exchange, applyToExchange);
+
+				}
+				catch (JsonSchemaException ex)
+				{
+					throw new OracleResponseException(response.Request.Resource, ex);
+				}
+			}
+			throw new HttpException(response.StatusCode, response.StatusDescription);
 		}
 
 
