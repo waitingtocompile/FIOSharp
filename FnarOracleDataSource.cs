@@ -25,6 +25,10 @@ namespace FIOSharp
 		public string AuthoriedAs { get; protected set; } = null;
 		
 		public bool AuthKeyExpired => authKeyExpiry.CompareTo(DateTime.Now) < 0;
+		/// <summary>
+		/// If the rest client should always require a valid auth token, even for requests that don't strictly needed.
+		/// You are encouraged to leave this enabled, since authed requests are less likely to be throttled and it helps saganaki diagnose issues if you break something
+		/// </summary>
 		public bool AlwaysRequireAuth;
 		public string APIBaseUrl => restClient.BaseUrl.ToString();
 
@@ -128,7 +132,7 @@ namespace FIOSharp
 		/// <returns>The RestResponse from the request</returns>
 		protected async Task<IRestResponse> RateLimitedGetAsync(RestRequest restRequest)
 		{
-			return await rateLimiter.RunAsync(async () => await restClient.ExecuteGetAsync(restRequest), RateLimitTimeout);
+			return await rateLimiter.RunAsync(() => restClient.ExecuteGetAsync(restRequest), RateLimitTimeout);
 		}
 
 		/// <summary>
@@ -182,7 +186,7 @@ namespace FIOSharp
 		/// <returns>The RestResponse from the request<</returns>
 		protected async Task<IRestResponse> RateLimitedPostAsync(RestRequest restRequest)
 		{
-			return await rateLimiter.RunAsync(async () => await restClient.ExecutePostAsync(restRequest), RateLimitTimeout);
+			return await rateLimiter.RunAsync(() => restClient.ExecutePostAsync(restRequest), RateLimitTimeout);
 		}
 		#endregion
 
@@ -201,7 +205,7 @@ namespace FIOSharp
 
 		/// <summary>
 		/// Check if we are authoried. This will cause API calls to check that our key is valid, so don't over-use this.
-		/// Rely on AuthKeyExpired to check that we have a key and it's not stale when you care about execution speed, since this will block threads while it waits for a response.
+		/// Instead use AuthKeyExpired to check that we have a key and it's not stale when you care about execution speed, since this will block threads while it waits for a response.
 		/// </summary>
 		public bool IsAuth()
 		{
@@ -483,7 +487,7 @@ namespace FIOSharp
 
 		/// <summary>
 		/// Check if we are authoried. This will cause API calls to check that our key is valid, so don't over-use this.
-		/// Rely on AuthKeyExpired to check that we have a key and it's not stale when you care about execution speed.
+		/// Instead use AuthKeyExpired to check that we have a key and it's not stale when you care about execution speed.
 		/// </summary>
 		public async Task<bool> IsAuthAsync()
 		{
@@ -542,14 +546,12 @@ namespace FIOSharp
 
 		public async Task<List<ExchangeEntry>> GetEntriesForExchangesAsync(List<ExchangeData> exchanges, List<Material> allMaterials = null, bool applyToExchanges = true)
 		{
-			//todo: do our cascading in a more async friendly manner
 			Task<List<Material>> awaitingMaterials = (allMaterials == null) ? GetMaterialsAsync() : Task.FromResult(allMaterials);
 
 			IEnumerable<JObject> jObjects = await GetAndConvertArrayAsync("exchange/full", token => {
 				try { return (JObject)token; }
 				catch (InvalidCastException) { throw new OracleResponseException("exchange/full", "Invalid schema, was expecting a json objects"); }
 			});
-			allMaterials = await awaitingMaterials;
 
 			IEnumerable<ExchangeEntry> entries = await Task.WhenAll(jObjects.Select(async jObject => 
 			{
@@ -562,7 +564,7 @@ namespace FIOSharp
 				{
 					throw new OracleResponseException("exchange/full", ex);
 				}
-			})));
+			}));
 
 			return entries.Where(data => data.Exchange != null).ToList();
 		}
@@ -752,7 +754,7 @@ namespace FIOSharp
 
 		protected async Task<IEnumerable<T>> GetAndConvertArrayAsync<T>(string path, Func<JToken, Task<T>> taskConverter = null)
 		{
-			if (taskConverter != null) taskConverter = token => Task.Run(() =>
+			if (taskConverter == null) taskConverter = token => Task.Run(() => 
 			{
 				try { return token.ToObject<T>(); }
 				catch (Exception ex) when (ex is JsonSerializationException || ex is FormatException || ex is ArgumentException)
