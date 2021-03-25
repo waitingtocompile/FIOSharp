@@ -255,7 +255,7 @@ namespace FIOSharp
 
 		public List<ExchangeData> GetExchanges()
 		{
-			return GetAndConvertArray<ExchangeData>("global/comexchanges");
+			return GetAndConvertArray<ExchangeData>("global/comexexchanges");
 		}
 
 		public List<ExchangeEntry> GetEntriesForExchange(ExchangeData exchange, List<Material> allMaterials = null, bool applyToExchange = true)
@@ -536,7 +536,7 @@ namespace FIOSharp
 
 		public async Task<List<ExchangeData>> GetExchangesAsync()
 		{
-			return (await GetAndConvertArrayAsync<ExchangeData>("global/comexchanges")).ToList();
+			return (await GetAndConvertArrayAsync<ExchangeData>("global/comexexchanges")).ToList();
 		}
 
 		public async Task<List<ExchangeEntry>> GetEntriesForExchangeAsync(ExchangeData exchange, List<Material> allMaterials = null, bool applyToExchanges = true)
