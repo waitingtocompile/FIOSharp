@@ -16,8 +16,7 @@ namespace FIOSharp.Data
 		public string Ticker => Exchange.GetComexMaterialCode(Material.Ticker);
 		public ExchangeData Exchange { get; private set; }
 
-		[JsonProperty("Timestamp")]
-		[JsonRequired]
+		[JsonProperty("Timestamp", Required = Required.Always)]
 		public readonly DateTime Timestamp;
 
 		#region sneaky property wrappers
@@ -63,62 +62,44 @@ namespace FIOSharp.Data
 		#endregion
 
 		#region general json properties
-		[JsonProperty("Previous", NullValueHandling = NullValueHandling.Ignore)]
-		[JsonRequired]
+		[JsonProperty("Previous", NullValueHandling = NullValueHandling.Ignore, Required = Required.AllowNull)]
 		private readonly double previous = -1;
-		[JsonProperty("Price", NullValueHandling = NullValueHandling.Ignore)]
-		[JsonRequired]
+		[JsonProperty("Price", NullValueHandling = NullValueHandling.Ignore, Required = Required.AllowNull)]
 		private readonly double price = -1;
-		[JsonProperty("High", NullValueHandling = NullValueHandling.Ignore)]
-		[JsonRequired]
+		[JsonProperty("High", NullValueHandling = NullValueHandling.Ignore, Required = Required.AllowNull)]
 		private readonly double high = -1;
-		[JsonProperty("Low", NullValueHandling = NullValueHandling.Ignore)]
-		[JsonRequired]
+		[JsonProperty("Low", NullValueHandling = NullValueHandling.Ignore, Required = Required.AllowNull)]
 		private readonly double low = -1;
-		[JsonProperty("Ask", NullValueHandling = NullValueHandling.Ignore)]
-		[JsonRequired]
+		[JsonProperty("Ask", NullValueHandling = NullValueHandling.Ignore, Required = Required.AllowNull)]
 		private readonly double ask = -1;
-		[JsonProperty("AskCount", NullValueHandling = NullValueHandling.Ignore)]
-		[JsonRequired]
+		[JsonProperty("AskCount", NullValueHandling = NullValueHandling.Ignore, Required = Required.AllowNull)]
 		private readonly int askCount = -1;
-		[JsonProperty("Bid", NullValueHandling = NullValueHandling.Ignore)]
-		[JsonRequired]
+		[JsonProperty("Bid", NullValueHandling = NullValueHandling.Ignore, Required = Required.AllowNull)]
 		private readonly double bid = -1;
-		[JsonProperty("BidCount", NullValueHandling = NullValueHandling.Ignore)]
-		[JsonRequired]
+		[JsonProperty("BidCount", NullValueHandling = NullValueHandling.Ignore, Required = Required.AllowNull)]	
 		private readonly int bidCount = -1;
-		[JsonProperty("Supply", NullValueHandling = NullValueHandling.Ignore)]
-		[JsonRequired]
+		[JsonProperty("Supply", NullValueHandling = NullValueHandling.Ignore, Required = Required.AllowNull)]		
 		private readonly int supply = -1;
-		[JsonProperty("Demand", NullValueHandling = NullValueHandling.Ignore)]
-		[JsonRequired]
+		[JsonProperty("Demand", NullValueHandling = NullValueHandling.Ignore, Required = Required.AllowNull)]
 		private readonly int demand = -1;
-		[JsonProperty("Traded")]
-		[JsonRequired]
+		[JsonProperty("Traded", Required = Required.Always)]
 		private readonly int traded;
-		[JsonProperty("Volume")]
-		[JsonRequired]
-		private readonly double tradeVolume;
-		[JsonProperty("PriceAverage", NullValueHandling = NullValueHandling.Ignore)]
-		[JsonRequired]
+		[JsonProperty("VolumeAmount", NullValueHandling = NullValueHandling.Ignore, Required = Required.AllowNull)]
+		private readonly double tradeVolume = 0;
+		[JsonProperty("PriceAverage", NullValueHandling = NullValueHandling.Ignore, Required = Required.AllowNull)]		
 		private readonly double priceAverage = -1;
-		[JsonProperty("NarrowPriceBandHigh", NullValueHandling = NullValueHandling.Ignore)]
-		[JsonRequired]
+		[JsonProperty("NarrowPriceBandHigh", NullValueHandling = NullValueHandling.Ignore, Required = Required.AllowNull)]		
 		private readonly double narrowBandHigh = -1;
-		[JsonProperty("NarrowPriceBandLow", NullValueHandling = NullValueHandling.Ignore)]
-		[JsonRequired]
+		[JsonProperty("NarrowPriceBandLow", NullValueHandling = NullValueHandling.Ignore, Required = Required.AllowNull)]		
 		private readonly double narrowBandLow = -1;
-		[JsonProperty("WidePriceBandHigh", NullValueHandling = NullValueHandling.Ignore)]
-		[JsonRequired]
+		[JsonProperty("WidePriceBandHigh", NullValueHandling = NullValueHandling.Ignore, Required = Required.AllowNull)]		
 		private readonly double wideBandHigh = -1;
-		[JsonProperty("WidePriceBandLow", NullValueHandling = NullValueHandling.Ignore)]
-		[JsonRequired]
+		[JsonProperty("WidePriceBandLow", NullValueHandling = NullValueHandling.Ignore, Required = Required.AllowNull)]
 		private readonly double wideBandLow = -1;
-		[JsonProperty("MMBuy", NullValueHandling = NullValueHandling.Ignore)]
-		[JsonRequired]
+		[JsonProperty("MMBuy", NullValueHandling = NullValueHandling.Ignore, Required = Required.AllowNull)]
 		private readonly double mMBuy = -1;
-		[JsonProperty("MMSell", NullValueHandling = NullValueHandling.Ignore)]
-		[JsonRequired]
+		[JsonProperty("MMSell", NullValueHandling = NullValueHandling.Ignore, Required = Required.AllowNull)]
+		
 		private readonly double mMSell = -1;
 		#endregion
 
@@ -135,7 +116,7 @@ namespace FIOSharp.Data
 			}
 			catch (Exception ex) when (ex is NullReferenceException || ex is ArgumentException || ex is FormatException)
 			{
-				throw new JsonSchemaException("Material ticker information improperly formatted or missing");
+				throw new JsonSchemaException("Material ticker information improperly formatted or missing", ex);
 			}
 			return FromJson(jObject, material, exchange, tryApplyToExchange);
 		}
@@ -154,7 +135,7 @@ namespace FIOSharp.Data
 			catch (Exception ex) when (ex is NullReferenceException || ex is ArgumentException || ex is FormatException || ex is JsonSerializationException)
 			{
 				//This is lacklustre and undescriptive. Maybe break up the try/catch into one for each thing?
-				throw new JsonSchemaException("Exchange entry information is improperly formatted");
+				throw new JsonSchemaException("Exchange entry information is improperly formatted", ex);
 			}
 
 			if (tryApplyToExchange && exchange != null)
