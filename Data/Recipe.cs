@@ -35,7 +35,7 @@ namespace FIOSharp.Data
 			
 			try
 			{
-				buildingTicker = jObject.GetValue("BuildingName").ToObject<string>();
+				buildingTicker = jObject.GetValue("BuildingTicker").ToObject<string>();
 				
 			}
 			catch(Exception ex) when (ex is NullReferenceException || ex is ArgumentException || ex is FormatException)
