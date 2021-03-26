@@ -428,15 +428,15 @@ namespace FIOSharp
 
 			try
 			{
-				return GetAndConvertArray(BuildRequest("recipe/allrecipes", AuthMode.Require), token => Recipe.FromJson((JObject)token, allMaterials, allBuildings));
+				return GetAndConvertArray(BuildRequest("recipes/allrecipes", AuthMode.Require), token => Recipe.FromJson((JObject)token, allMaterials, allBuildings));
 			}
 			catch (InvalidCastException)
 			{
-				throw new OracleResponseException("recipe/allrecipes", "did not recive a list of objects");
+				throw new OracleResponseException("recipes/allrecipes", "did not recive a list of objects");
 			}
 			catch (JsonSchemaException ex)
 			{
-				throw new OracleResponseException("recipe/allrecipes", ex);
+				throw new OracleResponseException("recipes/allrecipes", ex);
 			}
 		}
 
@@ -726,16 +726,16 @@ namespace FIOSharp
 			try
 			{
 
-				Task<Recipe[]> task = Task.WhenAll(await GetAndConvertArrayAsync(BuildRequest("recipe/allrecipes", AuthMode.Require), async token => Recipe.FromJson((JObject)token, await materialsTask, await buildingsTask)));
+				Task<Recipe[]> task = Task.WhenAll(await GetAndConvertArrayAsync(BuildRequest("recipes/allrecipes", AuthMode.Require), async token => Recipe.FromJson((JObject)token, await materialsTask, await buildingsTask)));
 				return (await task).ToList();
 			}
 			catch (InvalidCastException)
 			{
-				throw new OracleResponseException("recipe/allrecipes", "did not recive a list of objects");
+				throw new OracleResponseException("recipes/allrecipes", "did not recive a list of objects");
 			}
 			catch (JsonSchemaException ex)
 			{
-				throw new OracleResponseException("recipe/allrecipes", ex);
+				throw new OracleResponseException("recipes/allrecipes", ex);
 			}
 		}
 
