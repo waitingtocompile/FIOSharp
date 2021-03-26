@@ -10,7 +10,7 @@ namespace FIOSharp.Data
 	{
 		public readonly PopulationType PopulationType;
 		//count indicates the amount consumed per day by 100 workers of that type
-		public readonly IReadOnlyDictionary<Material, (double count, bool isOptional)> Requirements;
+		public readonly IReadOnlyDictionary<Material, (double count, bool isRequired)> Requirements;
 
 		public WorkforceRequirement(PopulationType populationType, IReadOnlyDictionary<Material, (double count, bool isOptional)> requirements)
 		{
