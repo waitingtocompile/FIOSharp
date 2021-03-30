@@ -87,7 +87,7 @@ namespace FIOSharp.Data
 			Dictionary<Material, int> inputs;
 			try
 			{
-				JArray inputArray = (JArray)jObject.GetValue("Input");
+				JArray inputArray = (JArray)jObject.GetValue("Inputs");
 				inputs = inputArray==null?new Dictionary<Material, int>(): ReadInputOutputJson(inputArray, allMaterials);
 			}
 			catch(InvalidCastException)

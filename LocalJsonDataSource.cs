@@ -5,7 +5,6 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -28,10 +27,11 @@ namespace FIOSharp
 		public bool AutoUpdateOnFallback = true;
 
 		protected const string BUIDLINGS_PATH = "/buildings.json";
-		protected const string MATERIALS_PATH = "/buildings.json";
+		protected const string MATERIALS_PATH = "/materials.json";
 		protected const string RECIPES_PATH = "/recipes.json";
 		protected const string WORKFORCES_PATH = "/workforces.json";
 
+		//These are thread safe locks to make sure that we don't fight over file access
 		protected ReaderWriterLockSlim buildingsLock = new ReaderWriterLockSlim();
 		protected ReaderWriterLockSlim materialsLock = new ReaderWriterLockSlim();
 		protected ReaderWriterLockSlim recipesLock = new ReaderWriterLockSlim();
@@ -196,10 +196,11 @@ namespace FIOSharp
 			try
 			{
 				fileLock.EnterWriteLock();
-				using (StreamWriter file = File.CreateText(path))
+				using (StreamWriter file = File.CreateText(DataDirectory + path))
 				{
 					using (JsonTextWriter jsonTextWriter = new JsonTextWriter(file))
 					{
+						jsonTextWriter.Formatting = Formatting.Indented;
 						jArray.WriteTo(jsonTextWriter);
 					}
 				}
@@ -305,10 +306,11 @@ namespace FIOSharp
 			try
 			{
 				fileLock.EnterWriteLock();
-				using (StreamWriter file = File.CreateText(path))
+				using (StreamWriter file = File.CreateText(DataDirectory + path))
 				{
 					using (JsonTextWriter jsonTextWriter = new JsonTextWriter(file))
 					{
+						jsonTextWriter.Formatting = Formatting.Indented;
 						await jArray.WriteToAsync(jsonTextWriter);
 					}
 				}
@@ -335,7 +337,7 @@ namespace FIOSharp
 			try
 			{
 				fileLock.EnterWriteLock();
-				using (StreamWriter file = File.CreateText(path))
+				using (StreamWriter file = File.CreateText(DataDirectory + path))
 				{
 					using (JsonTextWriter jsonTextWriter = new JsonTextWriter(file))
 					{
