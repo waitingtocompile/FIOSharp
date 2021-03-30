@@ -89,5 +89,22 @@ namespace FIOSharp.Data
 
 			return new WorkforceRequirement(populationType, dict);
 		}
+
+		public JObject ToJson()
+		{
+			JObject jObject = new JObject();
+			jObject.Add("WorkforceType", PopulationType.Name);
+			JArray needsArray = new JArray();
+			foreach(Material mat in Requirements.Keys)
+			{
+				JObject needsObject = new JObject();
+				needsObject.Add("MaterialTicker", mat.Ticker);
+				needsObject.Add("Amount", Requirements[mat].count);
+				needsObject.Add("Required", Requirements[mat].isRequired);
+				needsArray.Add(needsObject);
+			}
+			jObject.Add("Needs", needsArray);
+			return jObject;
+		}
 	}
 }

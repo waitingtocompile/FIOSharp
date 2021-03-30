@@ -35,7 +35,7 @@ namespace FIOSharp
 		protected ReaderWriterLockSlim buildingsLock = new ReaderWriterLockSlim();
 		protected ReaderWriterLockSlim materialsLock = new ReaderWriterLockSlim();
 		protected ReaderWriterLockSlim recipesLock = new ReaderWriterLockSlim();
-		protected ReaderWriterLockSlim workforcesLoc = new ReaderWriterLockSlim();
+		protected ReaderWriterLockSlim workforcesLock = new ReaderWriterLockSlim();
 
 
 		public LocalJsonDataSource(string dataDirectory, IFixedDataSource fallbackDataSource = null)
@@ -109,12 +109,23 @@ namespace FIOSharp
 
 		public List<WorkforceRequirement> GetWorkforceRequirements(List<Material> allMaterials = null)
 		{
-			throw new NotImplementedException();
+			if (allMaterials == null) allMaterials = GetMaterials();
+			return ReadFromFileAndDeserialize(WORKFORCES_PATH,
+				source => source.GetWorkforceRequirements(allMaterials),
+				list => SerializeAndWriteToFile(WORKFORCES_PATH, workforcesLock, list, requirement => requirement.ToJson()),
+				workforcesLock,
+				token => WorkforceRequirement.FromJson((JObject)token, allMaterials));
 		}
 
-		public Task<List<WorkforceRequirement>> GetWorkforceRequirementsAsync(List<Material> allMaterials = null)
+		public async Task<List<WorkforceRequirement>> GetWorkforceRequirementsAsync(List<Material> allMaterials = null)
 		{
-			throw new NotImplementedException();
+			Task<List<Material>> materialsTask = allMaterials == null ? GetMaterialsAsync() : Task.FromResult(allMaterials);
+
+			return (await ReadFromFileAndDeserializeAsync(WORKFORCES_PATH,
+				async source => await source.GetWorkforceRequirementsAsync(await materialsTask),
+				list => SerializeAndWriteToFileAsync(WORKFORCES_PATH, workforcesLock, list, async requirement => await Task.Run(() => requirement.ToJson())),
+				workforcesLock,
+				async token => WorkforceRequirement.FromJson((JObject)token, await materialsTask))).ToList();
 		}
 		
 
