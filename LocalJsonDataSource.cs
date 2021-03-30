@@ -32,10 +32,10 @@ namespace FIOSharp
 		protected const string WORKFORCES_PATH = "/workforces.json";
 
 		//These are thread safe locks to make sure that we don't fight over file access
-		protected ReaderWriterLockSlim buildingsLock = new ReaderWriterLockSlim();
-		protected ReaderWriterLockSlim materialsLock = new ReaderWriterLockSlim();
-		protected ReaderWriterLockSlim recipesLock = new ReaderWriterLockSlim();
-		protected ReaderWriterLockSlim workforcesLock = new ReaderWriterLockSlim();
+		protected FlexibleReadWriteLock buildingsLock = new FlexibleReadWriteLock();
+		protected FlexibleReadWriteLock materialsLock = new FlexibleReadWriteLock();
+		protected FlexibleReadWriteLock recipesLock = new FlexibleReadWriteLock();
+		protected FlexibleReadWriteLock workforcesLock = new FlexibleReadWriteLock();
 
 
 		public LocalJsonDataSource(string dataDirectory, IFixedDataSource fallbackDataSource = null)
@@ -130,7 +130,7 @@ namespace FIOSharp
 		}
 		
 
-		protected List<T> ReadFromFileAndDeserialize<T>(string localPath, Func<IFixedDataSource, List<T>> fallbackFetcher, Action<List<T>> FallbackWriter, ReaderWriterLockSlim fileLock, Func<JToken, T> converter = null)
+		protected List<T> ReadFromFileAndDeserialize<T>(string localPath, Func<IFixedDataSource, List<T>> fallbackFetcher, Action<List<T>> FallbackWriter, FlexibleReadWriteLock fileLock, Func<JToken, T> converter = null)
 		{
 			if(converter == null)
 			{
@@ -158,29 +158,29 @@ namespace FIOSharp
 				throw new LocalFileException(DataDirectory + localPath, new FileNotFoundException());
 			}
 
+
+
 			try
 			{
-				fileLock.EnterReadLock();
-				using (StreamReader file = File.OpenText(DataDirectory + localPath))
+				return fileLock.RunInRead(() =>
 				{
-					using (JsonTextReader jsonTextReader = new JsonTextReader(file))
+					using (StreamReader file = File.OpenText(DataDirectory + localPath))
 					{
-						JArray array = (JArray)JToken.ReadFrom(jsonTextReader);
-						return array.Select(converter).ToList();
+						using (JsonTextReader jsonTextReader = new JsonTextReader(file))
+						{
+							JArray array = (JArray)JToken.ReadFrom(jsonTextReader);
+							return array.Select(converter).ToList();
+						}
 					}
-				}
+				});
 			}
 			catch (Exception ex)
 			{
 				throw new LocalFileException(DataDirectory + localPath, ex);
 			}
-			finally
-			{
-				fileLock.ExitReadLock();
-			}
 		}
 
-		protected void SerializeAndWriteToFile<T>(string path, ReaderWriterLockSlim fileLock, List<T> values, Func<T, JToken> converter = null)
+		protected void SerializeAndWriteToFile<T>(string path, FlexibleReadWriteLock fileLock, List<T> values, Func<T, JToken> converter = null)
 		{
 			if(converter == null)
 			{
@@ -193,9 +193,8 @@ namespace FIOSharp
 				jArray.Add(token);
 			}
 
-			try
+			fileLock.RunInWrite(() =>
 			{
-				fileLock.EnterWriteLock();
 				using (StreamWriter file = File.CreateText(DataDirectory + path))
 				{
 					using (JsonTextWriter jsonTextWriter = new JsonTextWriter(file))
@@ -204,14 +203,11 @@ namespace FIOSharp
 						jArray.WriteTo(jsonTextWriter);
 					}
 				}
-			}
-			finally
-			{
-				fileLock.ExitWriteLock();
-			} 
+			});
+
 		}
 
-		protected async Task<IEnumerable<T>> ReadFromFileAndDeserializeAsync<T>(string localPath, Func<IFixedDataSource, Task<List<T>>> fallbackFetcher, Func<List<T>, Task> fallbackWriter, ReaderWriterLockSlim fileLock, Func<JToken, Task<T>> converter = null)
+		protected async Task<IEnumerable<T>> ReadFromFileAndDeserializeAsync<T>(string localPath, Func<IFixedDataSource, Task<List<T>>> fallbackFetcher, Func<List<T>, Task> fallbackWriter, FlexibleReadWriteLock fileLock, Func<JToken, Task<T>> converter = null)
 		{
 			if (converter == null)
 			{
@@ -236,7 +232,7 @@ namespace FIOSharp
 			return await Task.WhenAll((await GetJArrayFromFileAsync(localPath, fileLock)).Select(converter));
 		}
 
-		protected async Task<IEnumerable<T>> ReadFromFileAndDeserializeAsync<T>(string localPath, Func<IFixedDataSource, Task<List<T>>> fallbackFetcher, Func<List<T>, Task> fallbackWriter, ReaderWriterLockSlim fileLock, Func<JToken, T> converter)
+		protected async Task<IEnumerable<T>> ReadFromFileAndDeserializeAsync<T>(string localPath, Func<IFixedDataSource, Task<List<T>>> fallbackFetcher, Func<List<T>, Task> fallbackWriter, FlexibleReadWriteLock fileLock, Func<JToken, T> converter)
 		{
 			
 
@@ -251,51 +247,40 @@ namespace FIOSharp
 			return (await GetJArrayFromFileAsync(localPath, fileLock)).Select(converter);
 		}
 
-		protected async Task<JArray> GetJArrayFromFileAsync(string localPath, ReaderWriterLockSlim fileLock)
+		protected async Task<JArray> GetJArrayFromFileAsync(string localPath, FlexibleReadWriteLock fileLock)
 		{
 			try
 			{
-				fileLock.EnterReadLock();
-				using (StreamReader file = File.OpenText(DataDirectory + localPath))
-				{
-					using (JsonTextReader jsonTextReader = new JsonTextReader(file))
+				return await fileLock.RunInReadAsync(async () => {
+					using (StreamReader file = File.OpenText(DataDirectory + localPath))
 					{
-						return (JArray) await JToken.ReadFromAsync(jsonTextReader);
+						using (JsonTextReader jsonTextReader = new JsonTextReader(file))
+						{
+							return (JArray) await JToken.ReadFromAsync(jsonTextReader);
+						}
 					}
-				}
+				});
 			}
 			catch (Exception ex)
 			{
 				throw new LocalFileException(DataDirectory + localPath, ex);
 			}
-			finally
-			{
-				fileLock.ExitReadLock();
-			}
 		}
 
-		protected async Task<List<T>> getFallbackAsync<T>(string filePath, Func<IFixedDataSource, Task<List<T>>> fallbackProvider, Func<List<T>, Task> fallbackWriter, ReaderWriterLockSlim fileLock)
+		protected async Task<List<T>> getFallbackAsync<T>(string filePath, Func<IFixedDataSource, Task<List<T>>> fallbackProvider, Func<List<T>, Task> fallbackWriter, FlexibleReadWriteLock fileLock)
 		{
 			if (FallbackDataSource == null) throw new InvalidOperationException("Tried to get a fallback value when no fallback data source was present");
 			List<T> found = await fallbackProvider(FallbackDataSource);
 			if (AutoUpdateOnFallback)
 			{
-				try
-				{
-					fileLock.EnterWriteLock();
-					await fallbackWriter(found);
-				}
-				finally
-				{
-					fileLock.ExitWriteLock();
-				}
+				await fallbackWriter(found);
 				
 			}
 
 			return found;
 		}
 
-		protected async Task SerializeAndWriteToFileAsync<T>(string path, ReaderWriterLockSlim fileLock, List<T> values, Func<T, JToken> converter)
+		protected async Task SerializeAndWriteToFileAsync<T>(string path, FlexibleReadWriteLock fileLock, List<T> values, Func<T, JToken> converter)
 		{
 			JArray jArray = new JArray();
 			foreach (JToken token in values.Select(converter))
@@ -303,9 +288,8 @@ namespace FIOSharp
 				jArray.Add(token);
 			}
 
-			try
+			await fileLock.RunInWriteAsync(async () =>
 			{
-				fileLock.EnterWriteLock();
 				using (StreamWriter file = File.CreateText(DataDirectory + path))
 				{
 					using (JsonTextWriter jsonTextWriter = new JsonTextWriter(file))
@@ -314,14 +298,10 @@ namespace FIOSharp
 						await jArray.WriteToAsync(jsonTextWriter);
 					}
 				}
-			}
-			finally
-			{
-				fileLock.ExitWriteLock();
-			}
+			});
 		}
 
-		protected async Task SerializeAndWriteToFileAsync<T>(string path, ReaderWriterLockSlim fileLock, List<T> values, Func<T, Task<JToken>> converter = null)
+		protected async Task SerializeAndWriteToFileAsync<T>(string path, FlexibleReadWriteLock fileLock, List<T> values, Func<T, Task<JToken>> converter = null)
 		{
 			if (converter == null)
 			{
@@ -334,21 +314,17 @@ namespace FIOSharp
 				jArray.Add(token);
 			}
 
-			try
+			await fileLock.RunInWriteAsync(async () =>
 			{
-				fileLock.EnterWriteLock();
 				using (StreamWriter file = File.CreateText(DataDirectory + path))
 				{
 					using (JsonTextWriter jsonTextWriter = new JsonTextWriter(file))
 					{
+						jsonTextWriter.Formatting = Formatting.Indented;
 						await jArray.WriteToAsync(jsonTextWriter);
 					}
 				}
-			}
-			finally
-			{
-				fileLock.ExitWriteLock();
-			}
+			});
 		}
 		#endregion
 
@@ -373,17 +349,9 @@ namespace FIOSharp
 		}
 
 		
-		protected void clearTarget(string path, ReaderWriterLockSlim fileLock)
+		protected void clearTarget(string path, FlexibleReadWriteLock fileLock)
 		{
-			try
-			{
-				fileLock.EnterWriteLock();
-				File.Delete(DataDirectory + path);
-			}
-			finally
-			{
-				fileLock.ExitWriteLock();
-			}
+			fileLock.RunInWrite(() => File.Delete(DataDirectory + path));
 		}
 	}
 }
