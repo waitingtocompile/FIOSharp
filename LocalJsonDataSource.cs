@@ -71,7 +71,7 @@ namespace FIOSharp
 				async source => await source.GetBuildingsAsync(await materialsTask),
 				list => SerializeAndWriteToFileAsync(BUIDLINGS_PATH, buildingsLock, list, async building => await Task.Run(() => building.ToJson())),
 				buildingsLock,
-				async token => await Task.Run(() => Building.FromJson((JObject)token, allMaterials)))).ToList();
+				async token => Building.FromJson((JObject)token, await materialsTask))).ToList();
 		}
 
 		public List<Material> GetMaterials()
@@ -86,12 +86,25 @@ namespace FIOSharp
 
 		public List<Recipe> GetRecipes(List<Material> allMaterials = null, List<Building> buildings = null)
 		{
-			throw new NotImplementedException();
+			if (allMaterials == null) allMaterials = GetMaterials();
+			if (buildings == null) buildings = GetBuildings();
+			return ReadFromFileAndDeserialize(RECIPES_PATH,
+				source => source.GetRecipes(allMaterials, buildings),
+				list => SerializeAndWriteToFile(RECIPES_PATH, recipesLock, list, recipe => recipe.ToJson()),
+				recipesLock,
+				JToken => Recipe.FromJson((JObject)JToken, allMaterials, buildings));
 		}
 
-		public Task<List<Recipe>> GetRecipesAsync(List<Material> allMaterials = null, List<Building> buildings = null)
+		public async Task<List<Recipe>> GetRecipesAsync(List<Material> allMaterials = null, List<Building> buildings = null)
 		{
-			throw new NotImplementedException();
+			Task<List<Material>> materialsTask = allMaterials == null ? GetMaterialsAsync() : Task.FromResult(allMaterials);
+			Task<List<Building>> buildingsTask = buildings == null ? GetBuildingsAsync(await materialsTask) : Task.FromResult(buildings);
+
+			return (await ReadFromFileAndDeserializeAsync(RECIPES_PATH,
+				async source => await source.GetRecipesAsync(await materialsTask, await buildingsTask),
+				list => SerializeAndWriteToFileAsync(RECIPES_PATH, recipesLock, list, async recipe => await Task.Run(() => recipe.ToJson())),
+				recipesLock,
+				async token => Recipe.FromJson((JObject)token, await materialsTask, await buildingsTask))).ToList();
 		}
 
 		public List<WorkforceRequirement> GetWorkforceRequirements(List<Material> allMaterials = null)

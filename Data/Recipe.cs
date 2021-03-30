@@ -1,4 +1,5 @@
-﻿using Newtonsoft.Json.Linq;
+﻿using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -72,6 +73,7 @@ namespace FIOSharp.Data
 				}
 				else if (jObject.ContainsKey("Duration"))
 				{
+					//our format is in seconds
 					duration = jObject.GetValue("Duration").ToObject<int>();
 				}
 				else throw new JsonSchemaException("Expected entry Duration or TimeMs not found");
@@ -107,7 +109,6 @@ namespace FIOSharp.Data
 			return new Recipe(name, building, duration, inputs, outputs);
 		}
 
-
 		private static Dictionary<Material, int> ReadInputOutputJson(JArray jArray, List<Material> allMaterials)
 		{
 			try
@@ -134,6 +135,33 @@ namespace FIOSharp.Data
 			{
 				throw new JsonSchemaException("input or output amount was not a number");
 			}
+		}
+
+		public JObject ToJson()
+		{
+			JObject jObject = new JObject();
+			jObject.Add("RecipeName", Name);
+			jObject.Add("Duration", Duration);
+			jObject.Add("BuildingTicker", Building.Ticker);
+			JArray inputsArray = new JArray();
+			foreach(Material mat in Inputs.Keys)
+			{
+				JObject elem = new JObject();
+				elem.Add("Ticker", mat.Ticker);
+				elem.Add("Amount", Inputs[mat]);
+				inputsArray.Add(elem);
+			}
+			jObject.Add("Inputs", inputsArray);
+			JArray outputsArray = new JArray();
+			foreach (Material mat in Outputs.Keys)
+			{
+				JObject elem = new JObject();
+				elem.Add("Ticker", mat.Ticker);
+				elem.Add("Amount", Outputs[mat]);
+				outputsArray.Add(elem);
+			}
+			jObject.Add("Outputs", outputsArray);
+			return jObject;
 		}
 
 		public class Builder{
