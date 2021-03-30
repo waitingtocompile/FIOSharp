@@ -50,17 +50,33 @@ namespace FIOSharp
 
 		public List<Building> GetBuildings(List<Material> allMaterials = null)
 		{
-			throw new NotImplementedException();
+			if(allMaterials == null)
+			{
+				allMaterials = GetMaterials();
+			}
+
+			return ReadFromFileAndDeserialize(BUIDLINGS_PATH,
+				source => source.GetBuildings(allMaterials),
+				list => SerializeAndWriteToFile(BUIDLINGS_PATH,
+				buildingsLock, list, building => building.ToJson()),
+				buildingsLock,
+				token => Building.FromJson((JObject)token, allMaterials));
 		}
 
-		public Task<List<Building>> GetBuildingsAsync(List<Material> allMaterials = null)
+		public async Task<List<Building>> GetBuildingsAsync(List<Material> allMaterials = null)
 		{
-			throw new NotImplementedException();
+			Task<List<Material>> materialsTask = allMaterials == null ? GetMaterialsAsync() : Task.FromResult(allMaterials);
+
+			return (await ReadFromFileAndDeserializeAsync(BUIDLINGS_PATH,
+				async source => await source.GetBuildingsAsync(await materialsTask),
+				list => SerializeAndWriteToFileAsync(BUIDLINGS_PATH, buildingsLock, list, async building => await Task.Run(() => building.ToJson())),
+				buildingsLock,
+				async token => await Task.Run(() => Building.FromJson((JObject)token, allMaterials)))).ToList();
 		}
 
 		public List<Material> GetMaterials()
 		{
-			throw new NotImplementedException();
+			
 		}
 
 		public Task<List<Material>> GetMaterialsAsync()
@@ -139,6 +155,35 @@ namespace FIOSharp
 			}
 		}
 
+		protected void SerializeAndWriteToFile<T>(string path, ReaderWriterLockSlim fileLock, List<T> values, Func<T, JToken> converter = null)
+		{
+			if(converter == null)
+			{
+				converter = obj => JToken.FromObject(obj);
+			}
+
+			JArray jArray = new JArray();
+			foreach(JToken token in values.Select(converter))
+			{
+				jArray.Add(token);
+			}
+
+			try
+			{
+				fileLock.EnterWriteLock();
+				using (StreamWriter file = File.CreateText(path))
+				{
+					using (JsonTextWriter jsonTextWriter = new JsonTextWriter(file))
+					{
+						jArray.WriteTo(jsonTextWriter);
+					}
+				}
+			}
+			finally
+			{
+				fileLock.ExitWriteLock();
+			} 
+		}
 
 		protected async Task<IEnumerable<T>> ReadFromFileAndDeserializeAsync<T>(string localPath, Func<IFixedDataSource, Task<List<T>>> fallbackFetcher, Func<List<T>, Task> fallbackWriter, ReaderWriterLockSlim fileLock, Func<JToken, Task<T>> converter = null)
 		{
@@ -222,6 +267,61 @@ namespace FIOSharp
 			}
 
 			return found;
+		}
+
+		protected async Task SerializeAndWriteToFileAsync<T>(string path, ReaderWriterLockSlim fileLock, List<T> values, Func<T, JToken> converter)
+		{
+			JArray jArray = new JArray();
+			foreach (JToken token in values.Select(converter))
+			{
+				jArray.Add(token);
+			}
+
+			try
+			{
+				fileLock.EnterWriteLock();
+				using (StreamWriter file = File.CreateText(path))
+				{
+					using (JsonTextWriter jsonTextWriter = new JsonTextWriter(file))
+					{
+						await jArray.WriteToAsync(jsonTextWriter);
+					}
+				}
+			}
+			finally
+			{
+				fileLock.ExitWriteLock();
+			}
+		}
+
+		protected async Task SerializeAndWriteToFileAsync<T>(string path, ReaderWriterLockSlim fileLock, List<T> values, Func<T, Task<JToken>> converter = null)
+		{
+			if (converter == null)
+			{
+				converter = obj => Task.Run(() => JToken.FromObject(obj));
+			}
+
+			JArray jArray = new JArray();
+			foreach (JToken token in await Task.WhenAll(values.Select(converter)))
+			{
+				jArray.Add(token);
+			}
+
+			try
+			{
+				fileLock.EnterWriteLock();
+				using (StreamWriter file = File.CreateText(path))
+				{
+					using (JsonTextWriter jsonTextWriter = new JsonTextWriter(file))
+					{
+						await jArray.WriteToAsync(jsonTextWriter);
+					}
+				}
+			}
+			finally
+			{
+				fileLock.ExitWriteLock();
+			}
 		}
 	}
 }
