@@ -76,12 +76,12 @@ namespace FIOSharp
 
 		public List<Material> GetMaterials()
 		{
-			
+			return ReadFromFileAndDeserialize(MATERIALS_PATH, source => source.GetMaterials(), list => SerializeAndWriteToFile(MATERIALS_PATH, materialsLock, list), materialsLock);
 		}
 
-		public Task<List<Material>> GetMaterialsAsync()
+		public async Task<List<Material>> GetMaterialsAsync()
 		{
-			throw new NotImplementedException();
+			return (await ReadFromFileAndDeserializeAsync(MATERIALS_PATH, source => source.GetMaterialsAsync(), list => SerializeAndWriteToFileAsync(MATERIALS_PATH, materialsLock, list), materialsLock)).ToList();
 		}
 
 		public List<Recipe> GetRecipes(List<Material> allMaterials = null, List<Building> buildings = null)
