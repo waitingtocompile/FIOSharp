@@ -48,6 +48,7 @@ namespace FIOSharp
 			}
 		}
 
+		#region getters
 		public List<Building> GetBuildings(List<Material> allMaterials = null)
 		{
 			if(allMaterials == null)
@@ -341,6 +342,41 @@ namespace FIOSharp
 						await jArray.WriteToAsync(jsonTextWriter);
 					}
 				}
+			}
+			finally
+			{
+				fileLock.ExitWriteLock();
+			}
+		}
+		#endregion
+
+		public void ClearMaterials()
+		{
+			clearTarget(MATERIALS_PATH, materialsLock);
+		}
+
+		public void ClearBuildings()
+		{
+			clearTarget(BUIDLINGS_PATH, buildingsLock);
+		}
+
+		public void ClearRecipes()
+		{
+			clearTarget(RECIPES_PATH, recipesLock);
+		}
+
+		public void ClearWorkforces()
+		{
+			clearTarget(WORKFORCES_PATH, workforcesLock);
+		}
+
+		
+		protected void clearTarget(string path, ReaderWriterLockSlim fileLock)
+		{
+			try
+			{
+				fileLock.EnterWriteLock();
+				File.Delete(DataDirectory + path);
 			}
 			finally
 			{
