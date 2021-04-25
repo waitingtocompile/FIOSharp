@@ -21,8 +21,18 @@ namespace FIOSharp
 		/// The username that we are currently logged in as, null if we aren't logged in, or an empty string if the username is unknown
 		/// </summary>
 		public string AuthoriedAs { get; protected set; } = null;
-		
-		public bool AuthKeyExpired => AuthKeyExpiry.CompareTo(DateTime.Now) < 0;
+		/// <summary>
+		/// Check if we have an auth key and whether that key is expired. This only looks at local information and does not consult the server.
+		/// </summary>
+		public bool AuthKeyExpiredOrMissing => AuthLock.RunInRead(() => AuthKeyExpiry.HasValue ? AuthKeyExpiry.Value.CompareTo(DateTime.Now) < 0 : authKey == null || authKey.Length == 0);
+		private string authKey = "";
+		/// <summary>
+		/// The exact date and time our auth key will expire. Null if we have no auth key or we're using a permananent API key.
+		/// </summary>
+		public DateTime? AuthKeyExpiry { get; private set; }
+
+		private FlexibleReadWriteLock AuthLock = new FlexibleReadWriteLock();
+
 		/// <summary>
 		/// If the rest client should always require a valid auth token, even for requests that don't strictly needed.
 		/// You are encouraged to leave this enabled, since authed requests are less likely to be throttled and it helps saganaki diagnose issues if you break something
@@ -48,8 +58,7 @@ namespace FIOSharp
 		public int RestTimeout { get => restClient.Timeout; set => restClient.Timeout = value; }
 
 
-		private string authKey = "";
-		public DateTime AuthKeyExpiry { get; private set; }
+		
 		/// <summary>
 		/// This is our rate limiter, all API calls should in some capacity go through this. There's a bunch of helper methods to make this fairly painless when you're adding new enpoints
 		/// </summary>
@@ -63,7 +72,7 @@ namespace FIOSharp
 			restClient = new RestClient(APIBaseUrl);
 			AlwaysRequireAuth = alwaysAuth;
 			rateLimiter = new RateLimiter(rateLimit, 1000);
-			AuthKeyExpiry = DateTime.MinValue;
+			AuthKeyExpiry = null;
 		}
 
 		~FnarOracleDataSource()
@@ -79,15 +88,18 @@ namespace FIOSharp
 		{
 			RestRequest request = new RestRequest(path, DataFormat.Json);
 			if (authMode == AuthMode.Never) return request;
-			if (!AuthKeyExpired)
+			AuthLock.RunInRead(() =>
 			{
-				//auth key is still valid
-				request.AddHeader("Authorization", authKey);
-			}
-			else if (authMode == AuthMode.Require || AlwaysRequireAuth)
-			{
-				throw new InvalidOperationException("Authorization required, but no valid auth key stored, make sure you've logged in and are keeping your key fresh");
-			}
+				if (!AuthKeyExpiredOrMissing)
+				{
+					//auth key is still valid
+					request.AddHeader("Authorization", authKey);
+				}
+				else if (authMode == AuthMode.Require || AlwaysRequireAuth)
+				{
+					throw new InvalidOperationException("Authorization required, but no valid auth key stored, make sure you've logged in and are keeping your key fresh, or are using a permanent API key");
+				}
+			});
 			return request;
 		}
 
@@ -195,20 +207,23 @@ namespace FIOSharp
 		/// </summary>
 		public void ClearAuth()
 		{
-			AuthKeyExpiry = DateTime.MinValue;
-			authKey = "";
-			AuthoriedAs = null;
+			AuthLock.RunInWrite(() =>
+			{
+				AuthKeyExpiry = null;
+				authKey = "";
+				AuthoriedAs = null;
+			});
 		}
 
 		#region sync endpoints
 
 		/// <summary>
 		/// Check if we are authoried. This will cause API calls to check that our key is valid, so don't over-use this.
-		/// Instead use AuthKeyExpired to check that we have a key and it's not stale when you care about execution speed, since this will block threads while it waits for a response.
+		/// Instead use AuthKeyExpiredOrMissing to check that we have a key and it's not stale when you care about execution speed, since this will block threads while it waits for a response.
 		/// </summary>
 		public bool IsAuth()
 		{
-			if (AuthKeyExpired) return false;
+			if (AuthKeyExpiredOrMissing) return false;
 			IRestResponse response = RateLimitedGet("auth", AuthMode.Require);
 
 			if (response.StatusCode == HttpStatusCode.OK) return true;
@@ -233,9 +248,12 @@ namespace FIOSharp
 				try
 				{
 					JObject responseObject = JObject.Parse(response.Content);
-					AuthKeyExpiry = responseObject.GetValue("Expiry").ToObject<DateTime>();
-					authKey = responseObject.GetValue("AuthToken").ToObject<string>();
-					AuthoriedAs = username;
+					AuthLock.RunInWrite(() =>
+					{
+						AuthKeyExpiry = responseObject.GetValue("Expiry").ToObject<DateTime>();
+						authKey = responseObject.GetValue("AuthToken").ToObject<string>();
+						AuthoriedAs = username;
+					});
 				}
 				catch (Exception ex) when (ex is NullReferenceException || ex is JsonReaderException || ex is FormatException || ex is ArgumentException)
 				{
@@ -243,6 +261,28 @@ namespace FIOSharp
 					throw new OracleResponseException("auth/login", "Invalid json schema", ex);
 				}
 			}
+			return response.StatusCode;
+		}
+
+		/// <summary>
+		/// Log into the FIO API with a given API key.
+		/// </summary>
+		/// <returns>The resulting status code. 200 indicates a valid key, 401 indicates an invalid key, any other code indicates a failure of some kind</returns>
+		public HttpStatusCode LoginWithAPIKey(string key)
+		{
+			RestRequest request = BuildRequest("auth/", AuthMode.Never);//we need to add the API key manually
+			request.AddHeader("Authorization", key);
+			IRestResponse response = RateLimitedGet(request);
+			if(response.StatusCode == HttpStatusCode.OK)
+			{
+				AuthLock.RunInWrite(() =>
+				{
+					authKey = key;
+					AuthKeyExpiry = null;
+					AuthoriedAs = response.Content;
+				});
+			}
+
 			return response.StatusCode;
 		}
 
@@ -505,7 +545,7 @@ namespace FIOSharp
 		/// </summary>
 		public async Task<bool> IsAuthAsync()
 		{
-			if (AuthKeyExpired) return false;
+			if (AuthKeyExpiredOrMissing) return false;
 			IRestResponse response = await RateLimitedGetAsync("auth", AuthMode.Require);
 
 			if (response.StatusCode == HttpStatusCode.OK) return true;
@@ -530,9 +570,13 @@ namespace FIOSharp
 				try
 				{
 					JObject responseObject = JObject.Parse(response.Content);
-					AuthKeyExpiry = responseObject.GetValue("Expiry").ToObject<DateTime>();
-					authKey = responseObject.GetValue("AuthToken").ToObject<string>();
-					AuthoriedAs = username;
+					AuthLock.RunInWrite(() =>
+					{
+						AuthKeyExpiry = responseObject.GetValue("Expiry").ToObject<DateTime>();
+						authKey = responseObject.GetValue("AuthToken").ToObject<string>();
+						AuthoriedAs = username;
+					});
+					
 				}
 				catch (Exception ex) when (ex is NullReferenceException || ex is JsonReaderException || ex is FormatException || ex is ArgumentException)
 				{
@@ -540,6 +584,28 @@ namespace FIOSharp
 					throw new OracleResponseException("auth/login", "Invalid json schema", ex);
 				}
 			}
+			return response.StatusCode;
+		}
+
+		/// <summary>
+		/// Log into the FIO API with a given API key.
+		/// </summary>
+		/// <returns>The resulting status code. 200 indicates a valid key, 401 indicates an invalid key, any other code indicates a failure of some kind</returns>
+		public async Task<HttpStatusCode> LoginWithAPIKeyAsync(string key)
+		{
+			RestRequest request = BuildRequest("auth/", AuthMode.Never);//we need to add the API key manually
+			request.AddHeader("Authorization", key);
+			IRestResponse response = await RateLimitedGetAsync(request);
+			if (response.StatusCode == HttpStatusCode.OK)
+			{
+				AuthLock.RunInWrite(() =>
+				{
+					authKey = key;
+					AuthKeyExpiry = null;
+					AuthoriedAs = response.Content;
+				});
+			}
+
 			return response.StatusCode;
 		}
 
