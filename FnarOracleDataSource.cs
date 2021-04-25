@@ -22,7 +22,7 @@ namespace FIOSharp
 		/// </summary>
 		public string AuthoriedAs { get; protected set; } = null;
 		
-		public bool AuthKeyExpired => authKeyExpiry.CompareTo(DateTime.Now) < 0;
+		public bool AuthKeyExpired => AuthKeyExpiry.CompareTo(DateTime.Now) < 0;
 		/// <summary>
 		/// If the rest client should always require a valid auth token, even for requests that don't strictly needed.
 		/// You are encouraged to leave this enabled, since authed requests are less likely to be throttled and it helps saganaki diagnose issues if you break something
@@ -49,7 +49,7 @@ namespace FIOSharp
 
 
 		private string authKey = "";
-		private DateTime authKeyExpiry = DateTime.MinValue;
+		public DateTime AuthKeyExpiry { get; private set; }
 		/// <summary>
 		/// This is our rate limiter, all API calls should in some capacity go through this. There's a bunch of helper methods to make this fairly painless when you're adding new enpoints
 		/// </summary>
@@ -63,6 +63,7 @@ namespace FIOSharp
 			restClient = new RestClient(APIBaseUrl);
 			AlwaysRequireAuth = alwaysAuth;
 			rateLimiter = new RateLimiter(rateLimit, 1000);
+			AuthKeyExpiry = DateTime.MinValue;
 		}
 
 		~FnarOracleDataSource()
@@ -194,7 +195,7 @@ namespace FIOSharp
 		/// </summary>
 		public void ClearAuth()
 		{
-			authKeyExpiry = DateTime.MinValue;
+			AuthKeyExpiry = DateTime.MinValue;
 			authKey = "";
 			AuthoriedAs = null;
 		}
@@ -232,7 +233,7 @@ namespace FIOSharp
 				try
 				{
 					JObject responseObject = JObject.Parse(response.Content);
-					authKeyExpiry = responseObject.GetValue("Expiry").ToObject<DateTime>();
+					AuthKeyExpiry = responseObject.GetValue("Expiry").ToObject<DateTime>();
 					authKey = responseObject.GetValue("AuthToken").ToObject<string>();
 					AuthoriedAs = username;
 				}
@@ -245,6 +246,21 @@ namespace FIOSharp
 			return response.StatusCode;
 		}
 
+		public void RefreshLoginToken()
+		{
+			DateTime current = DateTime.Now;
+			IRestResponse restResponse = RateLimitedPost("/auth/refreshauthtoken", "", AuthMode.Require);
+			switch (restResponse.StatusCode)
+			{
+				case HttpStatusCode.OK:
+					AuthKeyExpiry = current.AddHours(24);
+					break;
+				case HttpStatusCode.BadRequest:
+					throw new OracleResponseException("auth/refreshauthtoken", "Internal server error");
+				case HttpStatusCode.Forbidden:
+					throw new OracleResponseException("auth/refreshauthtoken", "Auth token invalid or expired");
+			}
+		}
 
 		public List<Material> GetMaterials()
 		{
@@ -514,7 +530,7 @@ namespace FIOSharp
 				try
 				{
 					JObject responseObject = JObject.Parse(response.Content);
-					authKeyExpiry = responseObject.GetValue("Expiry").ToObject<DateTime>();
+					AuthKeyExpiry = responseObject.GetValue("Expiry").ToObject<DateTime>();
 					authKey = responseObject.GetValue("AuthToken").ToObject<string>();
 					AuthoriedAs = username;
 				}
@@ -525,6 +541,22 @@ namespace FIOSharp
 				}
 			}
 			return response.StatusCode;
+		}
+
+		public async Task RefreshLoginTokenAsync()
+		{
+			DateTime current = DateTime.Now;
+			IRestResponse restResponse = await RateLimitedPostAsync("/auth/refreshauthtoken", "", AuthMode.Require);
+			switch (restResponse.StatusCode)
+			{
+				case HttpStatusCode.OK:
+					AuthKeyExpiry = current.AddHours(24);
+					break;
+				case HttpStatusCode.BadRequest:
+					throw new OracleResponseException("auth/refreshauthtoken", "Internal server error");
+				case HttpStatusCode.Forbidden:
+					throw new OracleResponseException("auth/refreshauthtoken", "Auth token invalid or expired");
+			}
 		}
 
 		public async Task<List<Material>> GetMaterialsAsync()
