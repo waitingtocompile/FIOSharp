@@ -8,6 +8,22 @@ namespace FIOSharp.Data
 {
 	public struct Building
 	{
+		#region expertise constants
+		public const string EXPERTISE_AGRICULTURE = "AGRICULTURE";
+		public const string EXPERTISE_CHEMISTRY = "CHEMISTRY";
+		public const string EXPERTISE_CONSTRUCTION = "CONSTRUCTION";
+		public const string EXPERTISE_ELECTRONICS = "ELECTRONICS";
+		public const string EXPERTISE_FOOD_INDUSTRIES = "FOOD_INDUSTRIES";
+		public const string EXPERTISE_FUEL_REFINING = "FUEL_REFINING";
+		public const string EXPERTISE_MANUFACTURING = "MANUFACTURING";
+		public const string EXPERTISE_METALLURGY = "METALLURGY";
+		public const string EXPERTISE_RESOURCE_EXTRACTION = "RESOURCE_EXTRACTION";
+		public static readonly string[] EXPERTISE_ALL = {EXPERTISE_AGRICULTURE, EXPERTISE_CHEMISTRY, EXPERTISE_CONSTRUCTION, EXPERTISE_ELECTRONICS, EXPERTISE_FOOD_INDUSTRIES, EXPERTISE_FUEL_REFINING, EXPERTISE_MANUFACTURING, EXPERTISE_METALLURGY, EXPERTISE_RESOURCE_EXTRACTION};
+		#endregion expertise constants
+
+
+
+
 		[JsonProperty("Ticker")]
 		public readonly string Ticker;
 		[JsonProperty("Name")]
