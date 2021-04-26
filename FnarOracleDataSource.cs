@@ -16,9 +16,9 @@ namespace FIOSharp
 		/// The underlying RestSharp client that we're using. You shouldn't be making calls to this directly for the most part, but instead using the rate-limited helper functions
 		/// </summary>
 		protected readonly RestClient restClient;
-		
+
 		/// <summary>
-		/// The username that we are currently logged in as, null if we aren't logged in, or an empty string if the username is unknown
+		/// The username that we are currently logged in as, null if we aren't logged in
 		/// </summary>
 		public string AuthoriedAs { get; protected set; } = null;
 		/// <summary>
@@ -58,7 +58,7 @@ namespace FIOSharp
 		public int RestTimeout { get => restClient.Timeout; set => restClient.Timeout = value; }
 
 
-		
+
 		/// <summary>
 		/// This is our rate limiter, all API calls should in some capacity go through this. There's a bunch of helper methods to make this fairly painless when you're adding new enpoints
 		/// </summary>
@@ -156,7 +156,7 @@ namespace FIOSharp
 		protected IRestResponse RateLimitedPost(string path, string requestJsonBody = "", AuthMode authMode = AuthMode.IfAvailible)
 		{
 			RestRequest request = BuildRequest(path, authMode);
-			if(requestJsonBody.Length > 0)
+			if (requestJsonBody.Length > 0)
 			{
 				request.AddJsonBody(requestJsonBody);
 			}
@@ -273,7 +273,7 @@ namespace FIOSharp
 			RestRequest request = BuildRequest("auth/", AuthMode.Never);//we need to add the API key manually
 			request.AddHeader("Authorization", key);
 			IRestResponse response = RateLimitedGet(request);
-			if(response.StatusCode == HttpStatusCode.OK)
+			if (response.StatusCode == HttpStatusCode.OK)
 			{
 				AuthLock.RunInWrite(() =>
 				{
@@ -286,8 +286,13 @@ namespace FIOSharp
 			return response.StatusCode;
 		}
 
+		/// <summary>
+		/// Refresh the current login token
+		/// </summary>
 		public void RefreshLoginToken()
 		{
+			if (!AuthKeyExpiry.HasValue) return;
+
 			DateTime current = DateTime.Now;
 			IRestResponse restResponse = RateLimitedPost("/auth/refreshauthtoken", "", AuthMode.Require);
 			switch (restResponse.StatusCode)
@@ -302,6 +307,95 @@ namespace FIOSharp
 			}
 		}
 
+		/// <summary>
+		/// Get a list of all API keys associated with the currently logged in account. For security reasons, the password must be re-confirmed
+		/// </summary>
+		/// <param name="confirmPassword">the password of the currently auth'd user</param>
+		/// <returns>a list of name/key pairs</returns>
+		public List<(string name, string key)> GetAPIKeys(string confirmPassword)
+		{
+			if (AuthoriedAs == null) throw new OracleResponseException("/auth/listapikeys", "Authorization required, but no valid auth key stored, make sure you've logged in and are keeping your key fresh, or are using a permanent API key");
+
+			JObject jObject = new JObject();
+			jObject.Add("UserName", AuthoriedAs);
+			jObject.Add("Password", confirmPassword);
+			IRestResponse restResponse = RateLimitedPost("auth/listapikeys", jObject.ToString(), AuthMode.Never);
+			if(restResponse.StatusCode == HttpStatusCode.OK)
+			{
+				try
+				{
+					return JArray.Parse(restResponse.Content).Select(entry => 
+						(((JObject)entry).GetValue("Application").ToString(), ((JObject)entry).GetValue("AuthAPIKey").ToString())).ToList();
+				}
+				catch (Exception ex) when (ex is JsonReaderException || ex is FormatException | ex is ArgumentException | ex is NullReferenceException)
+				{
+					throw new OracleResponseException("/auth/listapikeys", "Could not parse recived json", ex);
+				}
+			}
+
+			if(restResponse.StatusCode == HttpStatusCode.Unauthorized)
+			{
+				throw new OracleResponseException("/auth/listapikeys", "Invalid credentials");
+			}
+			throw new HttpException(restResponse.StatusCode, restResponse.StatusDescription);
+		}
+
+		/// <summary>
+		/// Creates an API key for the currently logged in account. For security reasons, the password must be re-confirmed
+		/// </summary>
+		/// <param name="keyName">the application name of the key to be created</param>
+		/// <param name="confirmPassword">the password of the currently auth'd user</param>
+		/// <returns>the api key generated</returns>
+		public string CreateAPIKey(string keyName, string confirmPassword)
+		{
+			if (AuthoriedAs == null) throw new OracleResponseException("/auth/createapikey", "Authorization required, but no valid auth key stored, make sure you've logged in and are keeping your key fresh, or are using a permanent API key");
+
+			JObject jObject = new JObject();
+			jObject.Add("UserName", AuthoriedAs);
+			jObject.Add("Password", confirmPassword);
+			jObject.Add("Application", keyName);
+			IRestResponse restResponse = RateLimitedPost("auth/createapikey", jObject.ToString(), AuthMode.Never);
+			if (restResponse.StatusCode == HttpStatusCode.OK)
+			{
+				return restResponse.Content;
+			}
+			if(restResponse.StatusCode == HttpStatusCode.NotAcceptable)
+			{
+				throw new OracleResponseException("auth/createapikey", "Api key limit (20) exceeded)");
+			}
+
+			if (restResponse.StatusCode == HttpStatusCode.Unauthorized)
+			{
+				throw new OracleResponseException("/auth/createapikey", "Invalid credentials");
+			}
+			throw new HttpException(restResponse.StatusCode, restResponse.StatusDescription);
+		}
+
+		/// <summary>
+		/// Delete an API key associated with the currently logged in account. For security reasons, the password must be re-confirmed
+		/// </summary>
+		/// <param name="key">the key (not application name) to be deleted</param>
+		/// <param name="confirmPassword">the password of the currently auth'd user</param>
+		public void DeleteApiKey(string key, string confirmPassword)
+		{
+			if (AuthoriedAs == null) throw new OracleResponseException("/auth/revokeapikey", "Authorization required, but no valid auth key stored, make sure you've logged in and are keeping your key fresh, or are using a permanent API key");
+
+			JObject jObject = new JObject();
+			jObject.Add("UserName", AuthoriedAs);
+			jObject.Add("Password", confirmPassword);
+			jObject.Add("ApiKeyToRevoke", key);
+			IRestResponse restResponse = RateLimitedPost("auth/revokeapikey", jObject.ToString(), AuthMode.Never);
+			if (restResponse.StatusCode != HttpStatusCode.OK)
+			{
+				throw new HttpException(restResponse.StatusCode, restResponse.StatusDescription);
+			}
+
+			if (restResponse.StatusCode == HttpStatusCode.Unauthorized)
+			{
+				throw new OracleResponseException("/auth/createapikey", "Invalid credentials");
+			}
+		}
+		
 		public List<Material> GetMaterials()
 		{
 			return GetAndConvertArray<Material>("rain/materials");
@@ -625,6 +719,90 @@ namespace FIOSharp
 			}
 		}
 
+		/// <summary>
+		/// Get a list of all API keys associated with the currently logged in account. For security reasons, the password must be re-confirmed
+		/// </summary>
+		/// <param name="confirmPassword">the password of the currently auth'd user</param>
+		/// <returns>a list of name/key pairs</returns>
+		public async Task<List<(string name, string key)>> GetAPIKeysAsync(string confirmPassword)
+		{
+			if (AuthoriedAs == null) throw new OracleResponseException("/auth/listapikeys", "Authorization required, but no valid auth key stored, make sure you've logged in and are keeping your key fresh, or are using a permanent API key");
+
+			JObject jObject = new JObject();
+			jObject.Add("UserName", AuthoriedAs);
+			jObject.Add("Password", confirmPassword);
+			IRestResponse restResponse = await RateLimitedPostAsync("auth/listapikeys", jObject.ToString(), AuthMode.Never);
+			if (restResponse.StatusCode == HttpStatusCode.OK)
+			{
+				try
+				{
+					return JArray.Parse(restResponse.Content).Select(entry =>
+						(((JObject)entry).GetValue("Application").ToString(), ((JObject)entry).GetValue("AuthAPIKey").ToString())).ToList();
+				}
+				catch (Exception ex) when (ex is JsonReaderException || ex is FormatException | ex is ArgumentException | ex is NullReferenceException)
+				{
+					throw new OracleResponseException("/auth/listapikeys", "Could not parse recived json", ex);
+				}
+			}
+
+			if (restResponse.StatusCode == HttpStatusCode.Unauthorized)
+			{
+				throw new OracleResponseException("/auth/listapikeys", "Invalid credentials");
+			}
+			throw new HttpException(restResponse.StatusCode, restResponse.StatusDescription);
+		}
+
+		/// <summary>
+		/// Creates an API key for the currently logged in account. For security reasons, the password must be re-confirmed
+		/// </summary>
+		/// <param name="keyName">the application name of the key to be created</param>
+		/// <param name="confirmPassword">the password of the currently auth'd user</param>
+		/// <returns>the api key generated</returns>
+		public async Task<string> CreateAPIKeyAsync(string keyName, string confirmPassword)
+		{
+			if (AuthoriedAs == null) throw new OracleResponseException("/auth/createapikey", "Authorization required, but no valid auth key stored, make sure you've logged in and are keeping your key fresh, or are using a permanent API key");
+
+			JObject jObject = new JObject();
+			jObject.Add("UserName", AuthoriedAs);
+			jObject.Add("Password", confirmPassword);
+			jObject.Add("Application", keyName);
+			IRestResponse restResponse = await RateLimitedPostAsync("auth/createapikey", jObject.ToString(), AuthMode.Never);
+			if (restResponse.StatusCode == HttpStatusCode.OK)
+			{
+				return restResponse.Content;
+			}
+
+			if (restResponse.StatusCode == HttpStatusCode.Unauthorized)
+			{
+				throw new OracleResponseException("/auth/createapikey", "Invalid credentials");
+			}
+			throw new HttpException(restResponse.StatusCode, restResponse.StatusDescription);
+		}
+
+		/// <summary>
+		/// Delete an API key associated with the currently logged in account. For security reasons, the password must be re-confirmed
+		/// </summary>
+		/// <param name="key">the key (not application name) to be deleted</param>
+		/// <param name="confirmPassword">the password of the currently auth'd user</param>
+		public async Task DeleteApiKeyAsync(string key, string confirmPassword)
+		{
+			if (AuthoriedAs == null) throw new OracleResponseException("/auth/revokeapikey", "Authorization required, but no valid auth key stored, make sure you've logged in and are keeping your key fresh, or are using a permanent API key");
+
+			JObject jObject = new JObject();
+			jObject.Add("UserName", AuthoriedAs);
+			jObject.Add("Password", confirmPassword);
+			jObject.Add("ApiKeyToRevoke", key);
+			IRestResponse restResponse = await RateLimitedPostAsync("auth/revokeapikey", jObject.ToString(), AuthMode.Never);
+			if (restResponse.StatusCode != HttpStatusCode.OK)
+			{
+				throw new HttpException(restResponse.StatusCode, restResponse.StatusDescription);
+			}
+
+			if (restResponse.StatusCode == HttpStatusCode.Unauthorized)
+			{
+				throw new OracleResponseException("/auth/createapikey", "Invalid credentials");
+			}
+		}
 		public async Task<List<Material>> GetMaterialsAsync()
 		{
 			return (await GetAndConvertArrayAsync<Material>("rain/materials")).ToList();
