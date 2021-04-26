@@ -236,14 +236,14 @@ namespace FIOSharp
 		/// Log in to the FIO API with a given username and password
 		/// </summary>
 		/// <returns>The resulting status code. 200 indicates a succesful login, 401 indicates invalid credentials, any other code indicates a failure of some kind</returns>
-		public HttpStatusCode LoginAs(string username, string password)
+		public HttpStatusCode LoginAs(string username, string password, bool discardToken = false)
 		{
 			JObject jObject = new JObject();
 			jObject.Add("UserName", username);
 			jObject.Add("Password", password);
 
 			IRestResponse response = RateLimitedPost("auth/login", jObject.ToString(), AuthMode.Never);
-			if (response.StatusCode == HttpStatusCode.OK)
+			if (response.StatusCode == HttpStatusCode.OK && !discardToken)
 			{
 				try
 				{
@@ -652,14 +652,14 @@ namespace FIOSharp
 		/// Log in to the FIO API with a given username and password. On a success the resulting auth key will be stored for later use.
 		/// </summary>
 		/// <returns>The resulting status code. 200 indicates a succesful login, 401 indicates invalid credentials, any other code indicates a failure of some kind</returns>
-		public async Task<HttpStatusCode> LoginAsAsync(string username, string password)
+		public async Task<HttpStatusCode> LoginAsAsync(string username, string password, bool discardToken = false)
 		{
 			JObject jObject = new JObject();
 			jObject.Add("UserName", username);
 			jObject.Add("Password", password);
 
 			IRestResponse response = await RateLimitedPostAsync("auth/login", jObject.ToString(), AuthMode.Never);
-			if (response.StatusCode == HttpStatusCode.OK)
+			if (response.StatusCode == HttpStatusCode.OK && !discardToken)
 			{
 				try
 				{
