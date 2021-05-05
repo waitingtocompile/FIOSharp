@@ -4,7 +4,7 @@ namespace FIOSharp.Data
 {
 	public class ExchangeOrder
 	{
-		[JsonProperty("CompanyCode", Required = Required.Always)]
+		[JsonProperty("CompanyCode", Required = Required.AllowNull)]
 		public readonly string CompanyTicker;
 		[JsonProperty("ItemCount", NullValueHandling = NullValueHandling.Ignore, Required = Required.AllowNull)]
 		public readonly int Count = -1;

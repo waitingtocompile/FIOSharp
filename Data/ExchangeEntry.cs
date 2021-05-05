@@ -21,19 +21,19 @@ namespace FIOSharp.Data
 		#region sneaky property wrappers
 		//this is a miserable gross hack so that it'll play nice with both Json.Net (which doesn't like properties) and winforms (which only likes properties)
 		[JsonIgnore]
-		public double Previous => previous;
+		public decimal Previous => previous;
 		[JsonIgnore]
-		public double Price => price;
+		public decimal Price => price;
 		[JsonIgnore]
-		public double High => high;
+		public decimal High => high;
 		[JsonIgnore]
-		public double Low => low;
+		public decimal Low => low;
 		[JsonIgnore]
-		public double Ask => ask;
+		public decimal Ask => ask;
 		[JsonIgnore]
 		public int AskCount => askCount;
 		[JsonIgnore]
-		public double Bid => bid;
+		public decimal Bid => bid;
 		[JsonIgnore]
 		public int BidCount => bidCount;
 		[JsonIgnore]
@@ -43,38 +43,38 @@ namespace FIOSharp.Data
 		[JsonIgnore]
 		public int Traded => traded;
 		[JsonIgnore]
-		public double TradeVolume => tradeVolume;
+		public decimal TradeVolume => tradeVolume;
 		[JsonIgnore]
-		public double PriceAverage => priceAverage;
+		public decimal PriceAverage => priceAverage;
 		[JsonIgnore]
-		public double NarrowBandHigh => narrowBandHigh;
+		public decimal NarrowBandHigh => narrowBandHigh;
 		[JsonIgnore]
-		public double NarrowBandLow => narrowBandLow;
+		public decimal NarrowBandLow => narrowBandLow;
 		[JsonIgnore]
-		public double WideBandHigh => wideBandHigh;
+		public decimal WideBandHigh => wideBandHigh;
 		[JsonIgnore]
-		public double WideBandLow => wideBandLow;
+		public decimal WideBandLow => wideBandLow;
 		[JsonIgnore]
-		public double MMBuy => mMBuy;
+		public decimal MMBuy => mMBuy;
 		[JsonIgnore]
-		public double MMSell => mMSell;
+		public decimal MMSell => mMSell;
 		#endregion
 
 		#region general json properties
 		[JsonProperty("Previous", NullValueHandling = NullValueHandling.Ignore, Required = Required.AllowNull)]
-		private readonly double previous = -1;
+		private readonly decimal previous = -1;
 		[JsonProperty("Price", NullValueHandling = NullValueHandling.Ignore, Required = Required.AllowNull)]
-		private readonly double price = -1;
+		private readonly decimal price = -1;
 		[JsonProperty("High", NullValueHandling = NullValueHandling.Ignore, Required = Required.AllowNull)]
-		private readonly double high = -1;
+		private readonly decimal high = -1;
 		[JsonProperty("Low", NullValueHandling = NullValueHandling.Ignore, Required = Required.AllowNull)]
-		private readonly double low = -1;
+		private readonly decimal low = -1;
 		[JsonProperty("Ask", NullValueHandling = NullValueHandling.Ignore, Required = Required.AllowNull)]
-		private readonly double ask = -1;
+		private readonly decimal ask = -1;
 		[JsonProperty("AskCount", NullValueHandling = NullValueHandling.Ignore, Required = Required.AllowNull)]
 		private readonly int askCount = -1;
 		[JsonProperty("Bid", NullValueHandling = NullValueHandling.Ignore, Required = Required.AllowNull)]
-		private readonly double bid = -1;
+		private readonly decimal bid = -1;
 		[JsonProperty("BidCount", NullValueHandling = NullValueHandling.Ignore, Required = Required.AllowNull)]	
 		private readonly int bidCount = -1;
 		[JsonProperty("Supply", NullValueHandling = NullValueHandling.Ignore, Required = Required.AllowNull)]		
@@ -84,22 +84,22 @@ namespace FIOSharp.Data
 		[JsonProperty("Traded", Required = Required.Always)]
 		private readonly int traded;
 		[JsonProperty("VolumeAmount", NullValueHandling = NullValueHandling.Ignore, Required = Required.AllowNull)]
-		private readonly double tradeVolume = 0;
+		private readonly decimal tradeVolume = 0;
 		[JsonProperty("PriceAverage", NullValueHandling = NullValueHandling.Ignore, Required = Required.AllowNull)]		
-		private readonly double priceAverage = -1;
+		private readonly decimal priceAverage = -1;
 		[JsonProperty("NarrowPriceBandHigh", NullValueHandling = NullValueHandling.Ignore, Required = Required.AllowNull)]		
-		private readonly double narrowBandHigh = -1;
+		private readonly decimal narrowBandHigh = -1;
 		[JsonProperty("NarrowPriceBandLow", NullValueHandling = NullValueHandling.Ignore, Required = Required.AllowNull)]		
-		private readonly double narrowBandLow = -1;
+		private readonly decimal narrowBandLow = -1;
 		[JsonProperty("WidePriceBandHigh", NullValueHandling = NullValueHandling.Ignore, Required = Required.AllowNull)]		
-		private readonly double wideBandHigh = -1;
+		private readonly decimal wideBandHigh = -1;
 		[JsonProperty("WidePriceBandLow", NullValueHandling = NullValueHandling.Ignore, Required = Required.AllowNull)]
-		private readonly double wideBandLow = -1;
+		private readonly decimal wideBandLow = -1;
 		[JsonProperty("MMBuy", NullValueHandling = NullValueHandling.Ignore, Required = Required.AllowNull)]
-		private readonly double mMBuy = -1;
+		private readonly decimal mMBuy = -1;
 		[JsonProperty("MMSell", NullValueHandling = NullValueHandling.Ignore, Required = Required.AllowNull)]
 		
-		private readonly double mMSell = -1;
+		private readonly decimal mMSell = -1;
 		#endregion
 
 		public static ExchangeEntry FromJson(JObject jObject, List<Material> allMaterials, ExchangeData exchange, bool tryApplyToExchange = true)
