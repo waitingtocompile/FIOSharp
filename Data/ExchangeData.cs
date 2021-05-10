@@ -7,30 +7,42 @@ namespace FIOSharp.Data
 {
 	public class ExchangeData
 	{
-		private object guard = new object();
-
 		[JsonProperty("ExchangeName")]
 		[JsonRequired]
-		public readonly string Name;
+		private readonly string name;
 		[JsonProperty("ExchangeCode")]
 		[JsonRequired]
-		public readonly string Ticker;
+		private readonly string ticker;
 		[JsonProperty("CurrencyCode")]
 		[JsonRequired]
-		public readonly string Currency;
+		private readonly string currency;
 		[JsonProperty("CurrencyName")]
 		[JsonRequired]
-		public readonly string CurrencyName;
+		private readonly string currencyName;
 		[JsonProperty("LocationName")]
 		[JsonRequired]
-		public readonly string LocationName;
+		private readonly string locationName;
 		[JsonRequired]
 		[JsonProperty("LocationNaturalId")]
-		public readonly string LocationID;
+		private readonly string locationID;
 
 		[JsonIgnore]
 		public IReadOnlyDictionary<Material, ExchangeEntry> ExchangeEntries => _exchangeEntries;
-		//we're using a ConcurrentDictionary since it might be edited by asynchronous methods
+
+		[JsonIgnore]
+		public string Name => name;
+		[JsonIgnore]
+		public string Ticker => ticker;
+		[JsonIgnore]
+		public string Currency => currency;
+		[JsonIgnore]
+		public string CurrencyName => currencyName;
+		[JsonIgnore]
+		public string LocationName => locationName;
+		[JsonIgnore]
+		public string LocationID => locationID;
+
+		//we're using a ConcurrentDictionary since it might be edited by asynchronous methods. There are perfomrance issues, but it'll have to do
 		[JsonIgnore]
 		private ConcurrentDictionary<Material, ExchangeEntry> _exchangeEntries = new ConcurrentDictionary<Material, ExchangeEntry>();
 
