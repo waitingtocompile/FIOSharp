@@ -1,11 +1,10 @@
 ﻿using Newtonsoft.Json;
 using System;
-using System.Collections.Generic;
-using System.Text;
+using System.Diagnostics.CodeAnalysis;
 
 namespace FIOSharp.Data
 {
-	public struct Material
+	public struct Material : IEquatable<Material>
 	{
 		[JsonProperty("Name")]
 		[JsonRequired]
@@ -32,6 +31,32 @@ namespace FIOSharp.Data
 			Category = category;
 			Mass = mass;
 			Volume = volume;
+		}
+
+		public bool Equals([AllowNull] Material other)
+		{
+			return other.Ticker.Equals(Ticker, StringComparison.OrdinalIgnoreCase);
+		}
+
+		public override bool Equals(object o)
+		{
+			if (o is Material material) return Equals(material);
+			return false;
+		}
+
+		public override int GetHashCode()
+		{
+			return Ticker.GetHashCode(StringComparison.OrdinalIgnoreCase);
+		}
+
+		public static bool operator ==(Material mat1, Material mat2)
+		{
+			return mat1.Equals(mat2);
+		}
+
+		public static bool operator !=(Material mat1, Material mat2)
+		{
+			return !mat1.Equals(mat2);
 		}
 	}
 }
