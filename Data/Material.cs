@@ -1,6 +1,8 @@
 ﻿using Newtonsoft.Json;
 using System;
 using System.Diagnostics.CodeAnalysis;
+using System.Linq;
+using System.Text.RegularExpressions;
 
 namespace FIOSharp.Data
 {
@@ -21,7 +23,18 @@ namespace FIOSharp.Data
 		[JsonProperty("Volume")]
 		[JsonRequired]
 		public readonly decimal Volume;
-				
+		[JsonIgnore]
+		public string ReadableName { get
+			{
+				if(_readableName == null)
+				{
+					_readableName = ToReadableName(Name);
+				}
+				return _readableName;
+			} }
+		[JsonIgnore]
+		private string _readableName;
+
 		public static readonly Material NULL_MATERIAL = new Material( "", "", "", 0.0m, 0.0m );
 
 		private Material(string name, string ticker, string category, decimal mass, decimal volume)
@@ -31,7 +44,19 @@ namespace FIOSharp.Data
 			Category = category;
 			Mass = mass;
 			Volume = volume;
+			_readableName = ToReadableName(name);
 		}
+
+		public static string ToReadableName(string materialName)
+		{
+			if(materialName.Length > 1)
+			{
+				string str = Regex.Replace(materialName, "([A-Z])", " $1");
+				return str.Substring(0, 1).ToUpper() + str[1..];
+			}
+			return materialName.ToUpper();
+		}
+
 
 		public bool Equals([AllowNull] Material other)
 		{
