@@ -9,9 +9,9 @@ namespace FIOSharp.Data
 	{
 		public readonly PopulationType PopulationType;
 		//count indicates the amount consumed per day by 100 workers of that type
-		public readonly IReadOnlyDictionary<Material, (double count, bool isRequired)> Requirements;
+		public readonly IReadOnlyDictionary<Material, (decimal count, bool isRequired)> Requirements;
 
-		public WorkforceRequirement(PopulationType populationType, IReadOnlyDictionary<Material, (double count, bool isOptional)> requirements)
+		public WorkforceRequirement(PopulationType populationType, IReadOnlyDictionary<Material, (decimal count, bool isOptional)> requirements)
 		{
 			PopulationType = populationType;
 			Requirements = requirements;
@@ -39,18 +39,18 @@ namespace FIOSharp.Data
 				throw new JsonSchemaException("Invalid format for parameter Needs");
 			}
 
-			Dictionary<Material, (double count, bool isOptiona)> dict = new Dictionary<Material, (double count, bool isOptiona)>();
+			Dictionary<Material, (decimal count, bool isOptiona)> dict = new Dictionary<Material, (decimal count, bool isOptiona)>();
 
 			foreach(JToken token in needsArray)
 			{
 				JObject needsObject;
 				string materialTicker;
-				double amount;
+				decimal amount;
 				try
 				{
 					needsObject = (JObject)token;
 					materialTicker = needsObject.GetValue("MaterialTicker").ToObject<string>();
-					amount = needsObject.GetValue("Amount").ToObject<double>();
+					amount = needsObject.GetValue("Amount").ToObject<decimal>();
 				}
 				catch (Exception ex) when (ex is NullReferenceException || ex is ArgumentException || ex is FormatException || ex is InvalidCastException)
 				{
