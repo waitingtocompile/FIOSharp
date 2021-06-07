@@ -98,7 +98,6 @@ namespace FIOSharp.Data
 		[JsonProperty("MMBuy", NullValueHandling = NullValueHandling.Ignore, Required = Required.AllowNull)]
 		private readonly decimal? mMBuy = null;
 		[JsonProperty("MMSell", NullValueHandling = NullValueHandling.Ignore, Required = Required.AllowNull)]
-		
 		private readonly decimal? mMSell = null;
 		#endregion
 

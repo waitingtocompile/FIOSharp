@@ -2,11 +2,12 @@
 using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 
 namespace FIOSharp.Data
 {
-	public class Recipe
+	public class Recipe : IEquatable<Recipe>
 	{
 		//unique identifier for that particular recipe variant
 		public readonly string Name;
@@ -18,6 +19,8 @@ namespace FIOSharp.Data
 		public readonly IReadOnlyDictionary<Material, int> Inputs;
 		public readonly IReadOnlyDictionary<Material, int> Outputs;
 
+		private int? cachedHash;
+
 		public Recipe(string key, Building building, int duration, IReadOnlyDictionary<Material, int> inputs, IReadOnlyDictionary<Material, int> outputs)
 		{
 			Name = key;
@@ -27,7 +30,50 @@ namespace FIOSharp.Data
 			Outputs = outputs;
 		}
 
-		
+		#region equality bits
+		public bool Equals([AllowNull] Recipe other)
+		{
+			if (other == null) return false;
+			if (Building != other.Building) return false;
+			if (Inputs.Count != other.Inputs.Count || Outputs.Count != other.Outputs.Count) return false;
+			if (!Inputs.All(pair => other.Inputs.ContainsKey(pair.Key) && other.Inputs[pair.Key] == pair.Value)) return false;
+			if (!Outputs.All(pair => other.Outputs.ContainsKey(pair.Key) && other.Outputs[pair.Key] == pair.Value)) return false;
+
+			return true;
+		}
+
+		public override bool Equals(object o)
+		{
+			if (o is Recipe recipe) return Equals(recipe);
+			return false;
+		}
+
+		public override int GetHashCode()
+		{
+			if (cachedHash.HasValue) return cachedHash.Value;
+
+			//this is an imperfect hash, it doesn't accurately reflect all fields. Exceptionally similar recipes can result in hash collisions
+			//however it does guarentee that identical recipes will spit out the same hash.
+			var inputHashes = Inputs.Keys.Select(mat => mat.GetHashCode()).ToArray();
+			Array.Sort(inputHashes);
+			var outputHashes = Outputs.Keys.Select(mat => mat.GetHashCode()).ToArray();
+			Array.Sort(outputHashes);
+			cachedHash = HashCode.Combine(Building, inputHashes, outputHashes);
+			return cachedHash.Value;
+		}
+
+		public static bool operator ==(Recipe recipe1, Recipe recipe2)
+		{
+			return recipe1.Equals(recipe2);
+		}
+
+		public static bool operator !=(Recipe recipe1, Recipe recipe2)
+		{
+			return !recipe1.Equals(recipe2);
+		}
+		#endregion
+
+
 		public static Recipe FromJson(JObject jObject, List<Material> allMaterials, List<Building> allBuildings)
 		{
 			string buildingTicker;

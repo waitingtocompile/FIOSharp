@@ -42,10 +42,7 @@ namespace FIOSharp
 		{
 			DataDirectory = dataDirectory;
 			FallbackDataSource = fallbackDataSource;
-			if (Directory.Exists(dataDirectory))
-			{
-				Directory.CreateDirectory(dataDirectory);
-			}
+			Directory.CreateDirectory(dataDirectory);
 		}
 
 		#region getters

@@ -2,11 +2,12 @@
 using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 
 namespace FIOSharp.Data
 {
-	public struct Building
+	public struct Building : IEquatable<Building>
 	{
 		#region expertise constants
 		public const string EXPERTISE_AGRICULTURE = "AGRICULTURE";
@@ -67,7 +68,34 @@ namespace FIOSharp.Data
 				throw new JsonSchemaException(null, ex);
 			}
 		}
+		#region equality bits
+		public bool Equals([AllowNull] Building other)
+		{
+			if (other == null) return false;
+			return Ticker.Equals(other.Ticker, StringComparison.OrdinalIgnoreCase);
+		}
 
+		public override bool Equals(object o)
+		{
+			if (o is Building building) return Equals(building);
+			return false;
+		}
+
+		public override int GetHashCode()
+		{
+			return Ticker.GetHashCode(StringComparison.OrdinalIgnoreCase);
+		}
+
+		public static bool operator ==(Building building1, Building building2)
+		{
+			return building1.Equals(building2);
+		}
+
+		public static bool operator !=(Building building1, Building building2)
+		{
+			return !building1.Equals(building2);
+		}
+		#endregion
 		/// <summary>
 		/// This is for converting to our unified building json
 		/// </summary>

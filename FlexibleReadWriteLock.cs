@@ -7,7 +7,7 @@ using System.Threading.Tasks;
 namespace FIOSharp
 {
 	/// <summary>
-	/// An async friendly readwrite lock that can still be used in a synchronous context
+	/// An async friendly read/write lock that can still be used in a synchronous context
 	/// </summary>
 	public sealed class FlexibleReadWriteLock : IDisposable
 	{
