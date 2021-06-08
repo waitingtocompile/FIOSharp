@@ -33,7 +33,7 @@ namespace FIOSharp.Data
 		#region equality bits
 		public bool Equals([AllowNull] Recipe other)
 		{
-			if (other == null) return false;
+			if (other is null) return false;
 			if (Building != other.Building) return false;
 			if (Inputs.Count != other.Inputs.Count || Outputs.Count != other.Outputs.Count) return false;
 			if (!Inputs.All(pair => other.Inputs.ContainsKey(pair.Key) && other.Inputs[pair.Key] == pair.Value)) return false;
@@ -51,24 +51,48 @@ namespace FIOSharp.Data
 		public override int GetHashCode()
 		{
 			if (cachedHash.HasValue) return cachedHash.Value;
+			cachedHash = HashCode.Combine(Building, inputsHash(), outputsHash());
 
-			//this is an imperfect hash, it doesn't accurately reflect all fields. Exceptionally similar recipes can result in hash collisions
-			//however it does guarentee that identical recipes will spit out the same hash.
-			var inputHashes = Inputs.Keys.Select(mat => mat.GetHashCode()).ToArray();
-			Array.Sort(inputHashes);
-			var outputHashes = Outputs.Keys.Select(mat => mat.GetHashCode()).ToArray();
-			Array.Sort(outputHashes);
-			cachedHash = HashCode.Combine(Building, inputHashes, outputHashes);
 			return cachedHash.Value;
+		}
+
+		public int inputsHash()
+		{
+			KeyValuePair<Material, int>[] pairs = Inputs.ToArray();
+			Array.Sort(pairs, Comparer<KeyValuePair<Material, int>>.Create((pair1, pair2) => pair1.Key.Name.CompareTo(pair2.Key.Name)));
+			var hash = 17;
+			for(int i = 0; i < pairs.Length; i++)
+			{
+				hash = hash * 31 + pairs[i].Key.GetHashCode();
+				hash = hash * 31 + pairs[i].Value;
+			}
+
+			return hash;
+		}
+
+		public int outputsHash()
+		{
+			KeyValuePair<Material, int>[] pairs = Outputs.ToArray();
+			Array.Sort(pairs, Comparer<KeyValuePair<Material, int>>.Create((pair1, pair2) => pair1.Key.Name.CompareTo(pair2.Key.Name)));
+			var hash = 17;
+			for (int i = 0; i < pairs.Length; i++)
+			{
+				hash = hash * 31 + pairs[i].Key.GetHashCode();
+				hash = hash * 31 + pairs[i].Value;
+			}
+
+			return hash;
 		}
 
 		public static bool operator ==(Recipe recipe1, Recipe recipe2)
 		{
+			if (recipe1 is null) return recipe2 is null;
 			return recipe1.Equals(recipe2);
 		}
 
 		public static bool operator !=(Recipe recipe1, Recipe recipe2)
 		{
+			if (recipe1 is null) return !(recipe2 is null);
 			return !recipe1.Equals(recipe2);
 		}
 		#endregion
